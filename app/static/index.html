@@ -99,50 +99,171 @@
 
             <!-- New Scan Tab -->
             <div id="scan" class="tab-content">
+                <!-- Resource Monitor -->
+                <div class="resource-monitor">
+                    <h4>📊 System Resources</h4>
+                    <div class="resource-grid">
+                        <div class="resource-item">
+                            <h5>CPU Usage</h5>
+                            <div class="resource-value" id="cpuUsage">45%</div>
+                            <div class="resource-bar">
+                                <div class="resource-fill medium" id="cpuBar" style="width: 45%"></div>
+                            </div>
+                        </div>
+                        <div class="resource-item">
+                            <h5>Memory</h5>
+                            <div class="resource-value" id="memoryUsage">12.4GB</div>
+                            <div class="resource-bar">
+                                <div class="resource-fill low" id="memoryBar" style="width: 30%"></div>
+                            </div>
+                        </div>
+                        <div class="resource-item">
+                            <h5>Network</h5>
+                            <div class="resource-value" id="networkUsage">2.1 Gb/s</div>
+                            <div class="resource-bar">
+                                <div class="resource-fill low" id="networkBar" style="width: 21%"></div>
+                            </div>
+                        </div>
+                        <div class="resource-item">
+                            <h5>Active Scans</h5>
+                            <div class="resource-value" id="activeScans">0</div>
+                            <div class="resource-bar">
+                                <div class="resource-fill low" id="scansBar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="scan-form-container">
-                    <h3>Start New Scan</h3>
+                    <h3>🚀 Start New Scan</h3>
                     <form id="scanForm">
+                        <!-- Enhanced Target Input -->
                         <div class="form-group">
-                            <label for="targets">Targets (one per line):</label>
-                            <textarea id="targets" name="targets" rows="5" placeholder="example.com&#10;https://target.com" required></textarea>
-                            <button type="button" id="uploadTargetsBtn" class="btn btn-secondary">Upload File</button>
+                            <label for="targets">🎯 Targets (one per line):</label>
+                            <textarea id="targets" name="targets" rows="6" placeholder="example.com&#10;https://target.com&#10;subdomain.example.com&#10;192.168.1.1/24" required></textarea>
+                            <div class="form-row" style="margin-top: 0.5rem;">
+                                <button type="button" id="uploadTargetsBtn" class="btn btn-secondary">📁 Upload File</button>
+                                <button type="button" id="validateTargetsBtn" class="btn btn-neon">✓ Validate Targets</button>
+                            </div>
                             <input type="file" id="targetsFile" accept=".txt,.csv" style="display: none;">
+                            <div id="targetValidation" class="validation-result" style="display: none;"></div>
                         </div>
 
+                        <!-- Enhanced Wordlist Selection -->
                         <div class="form-group">
-                            <label for="wordlist">Wordlist:</label>
+                            <label for="wordlist">📋 Wordlist & Paths:</label>
                             <select id="wordlist" name="wordlist">
-                                <option value="paths.txt">Default Wordlist</option>
+                                <option value="paths.txt">Default Wordlist (Common Paths)</option>
+                                <option value="admin.txt">Admin Panels</option>
+                                <option value="api.txt">API Endpoints</option>
+                                <option value="backup.txt">Backup Files</option>
+                                <option value="config.txt">Config Files</option>
+                                <option value="custom">Custom Wordlist</option>
                             </select>
-                            <button type="button" id="uploadWordlistBtn" class="btn btn-secondary">Upload Custom</button>
+                            <div class="form-row" style="margin-top: 0.5rem;">
+                                <button type="button" id="uploadWordlistBtn" class="btn btn-secondary">📁 Upload Custom</button>
+                                <button type="button" id="pathBuilderBtn" class="btn btn-neon">🔧 Path Builder</button>
+                            </div>
                             <input type="file" id="wordlistFile" accept=".txt" style="display: none;">
                         </div>
 
+                        <!-- Advanced Concurrency Control -->
+                        <div class="concurrency-control">
+                            <div class="concurrency-label">
+                                <label>⚡ Concurrency Threads:</label>
+                                <span class="concurrency-value" id="concurrencyValue">50</span>
+                            </div>
+                            <input type="range" id="concurrency" name="concurrency" 
+                                   class="concurrency-slider" 
+                                   value="50" min="1" max="50000" step="1">
+                            <div class="concurrency-presets">
+                                <button type="button" class="preset-btn" data-value="10">Light (10)</button>
+                                <button type="button" class="preset-btn" data-value="100">Normal (100)</button>
+                                <button type="button" class="preset-btn" data-value="500">Heavy (500)</button>
+                                <button type="button" class="preset-btn" data-value="2000">Intense (2K)</button>
+                                <button type="button" class="preset-btn" data-value="10000">Extreme (10K)</button>
+                                <button type="button" class="preset-btn" data-value="50000">Maximum (50K)</button>
+                            </div>
+                            <div class="tooltip" data-tooltip="Higher concurrency = faster scans but more resource usage">
+                                <small style="color: var(--text-muted);">💡 Recommended: 100-2000 for most targets</small>
+                            </div>
+                        </div>
+
+                        <!-- Enhanced Configuration -->
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="concurrency">Concurrency:</label>
-                                <input type="number" id="concurrency" name="concurrency" value="50" min="1" max="200">
+                                <label for="timeout">⏱️ Timeout (seconds):</label>
+                                <input type="number" id="timeout" name="timeout" value="10" min="1" max="300">
                             </div>
                             <div class="form-group">
-                                <label for="timeout">Timeout (seconds):</label>
-                                <input type="number" id="timeout" name="timeout" value="10" min="1" max="60">
+                                <label for="rateLimit">🚄 Rate Limit (req/sec):</label>
+                                <input type="number" id="rateLimit" name="rateLimit" value="100" min="1" max="10000">
                             </div>
                         </div>
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="rateLimit">Rate Limit (req/sec):</label>
-                                <input type="number" id="rateLimit" name="rateLimit" value="100" min="1" max="1000">
+                                <label for="retries">🔄 Max Retries:</label>
+                                <input type="number" id="retries" name="retries" value="3" min="0" max="10">
                             </div>
                             <div class="form-group">
-                                <label>
+                                <label for="delay">⏳ Delay (ms):</label>
+                                <input type="number" id="delay" name="delay" value="0" min="0" max="5000" step="100">
+                            </div>
+                        </div>
+
+                        <!-- Advanced Options -->
+                        <div class="form-group">
+                            <label>🛠️ Advanced Options:</label>
+                            <div class="checkbox-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 0.5rem;">
+                                <label class="checkbox-label">
                                     <input type="checkbox" id="followRedirects" name="followRedirects" checked>
-                                    Follow Redirects
+                                    🔗 Follow Redirects
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="verifySSL" name="verifySSL" checked>
+                                    🔒 Verify SSL
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="enableRegex" name="enableRegex">
+                                    🔍 Custom Regex Patterns
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="saveResponses" name="saveResponses">
+                                    💾 Save Full Responses
                                 </label>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Start Scan</button>
+                        <!-- Custom Regex Section (initially hidden) -->
+                        <div id="regexSection" class="form-group" style="display: none;">
+                            <label for="customRegex">🔍 Custom Regex Patterns (one per line):</label>
+                            <textarea id="customRegex" name="customRegex" rows="4" 
+                                      placeholder="(?i)api[_-]?key\s*[:=]\s*['\&quot;]?([a-zA-Z0-9]{32,})&#10;password\s*[:=]\s*['\&quot;]?([^'\&quot;\s]+)&#10;secret\s*[:=]\s*['\&quot;]?([^'\&quot;\s]+)"></textarea>
+                            <div class="form-row" style="margin-top: 0.5rem;">
+                                <button type="button" id="validateRegexBtn" class="btn btn-secondary">✓ Validate Regex</button>
+                                <button type="button" id="regexLibraryBtn" class="btn btn-neon">📚 Pattern Library</button>
+                            </div>
+                            <div id="regexValidation" class="validation-result" style="display: none;"></div>
+                        </div>
+
+                        <!-- Scan Templates -->
+                        <div class="form-group">
+                            <label for="scanTemplate">📋 Scan Templates:</label>
+                            <select id="scanTemplate" name="scanTemplate">
+                                <option value="custom">Custom Configuration</option>
+                                <option value="quick">Quick Scan (Fast & Light)</option>
+                                <option value="comprehensive">Comprehensive Scan</option>
+                                <option value="stealth">Stealth Mode (Slow & Quiet)</option>
+                                <option value="aggressive">Aggressive (High Speed)</option>
+                            </select>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="form-row" style="margin-top: 2rem;">
+                            <button type="button" id="previewScanBtn" class="btn btn-secondary">👁️ Preview Configuration</button>
+                            <button type="submit" class="btn btn-success">🚀 Start Scan</button>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -150,10 +271,47 @@
             <!-- Results Tab -->
             <div id="results" class="tab-content">
                 <div class="results-header">
-                    <h3>Scan Results</h3>
-                    <button id="refreshResults" class="btn btn-secondary">Refresh</button>
+                    <h3>📊 Scan Results</h3>
+                    <div class="results-controls">
+                        <input type="text" id="searchResults" placeholder="🔍 Search results..." class="search-input">
+                        <select id="filterStatus" class="filter-select">
+                            <option value="">All Status</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="queued">Queued</option>
+                        </select>
+                        <button id="refreshResults" class="btn btn-secondary">🔄 Refresh</button>
+                        <button id="exportAllResults" class="btn btn-neon">📥 Export All</button>
+                    </div>
                 </div>
-                <div id="scansList" class="scans-list"></div>
+                
+                <!-- Results Statistics -->
+                <div class="results-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Scans:</span>
+                        <span class="stat-value" id="totalResultScans">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Findings:</span>
+                        <span class="stat-value" id="totalResultFindings">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Success Rate:</span>
+                        <span class="stat-value" id="resultSuccessRate">0%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Last Scan:</span>
+                        <span class="stat-value" id="lastScanTime">Never</span>
+                    </div>
+                </div>
+                
+                <!-- Virtual Scroller for Large Datasets -->
+                <div id="scansList" class="scans-list virtual-scroller">
+                    <div class="virtual-content" id="virtualContent">
+                        <!-- Dynamically populated scan items -->
+                    </div>
+                </div>
             </div>
 
             <!-- Config Tab -->
