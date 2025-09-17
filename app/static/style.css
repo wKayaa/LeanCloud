@@ -697,6 +697,78 @@ textarea {
     animation: shimmer 3s infinite;
 }
 
+/* Finding Summary Badges */
+.finding-summary {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.finding-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.finding-badge.aws {
+    background: linear-gradient(45deg, #ff9900, #ff6600);
+    box-shadow: 0 2px 8px rgba(255, 153, 0, 0.3);
+}
+
+.finding-badge.sendgrid {
+    background: linear-gradient(45deg, #1a82e2, #4fc3f7);
+    box-shadow: 0 2px 8px rgba(26, 130, 226, 0.3);
+}
+
+.finding-badge.stripe {
+    background: linear-gradient(45deg, #635bff, #7c4dff);
+    box-shadow: 0 2px 8px rgba(99, 91, 255, 0.3);
+}
+
+.finding-badge.smtp {
+    background: linear-gradient(45deg, #4caf50, #66bb6a);
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.finding-badge.docker {
+    background: linear-gradient(45deg, #2496ed, #0db7ed);
+    box-shadow: 0 2px 8px rgba(36, 150, 237, 0.3);
+}
+
+.finding-badge.k8s {
+    background: linear-gradient(45deg, #326ce5, #4285f4);
+    box-shadow: 0 2px 8px rgba(50, 108, 229, 0.3);
+}
+
+.finding-badge.mailgun {
+    background: linear-gradient(45deg, #e74c3c, #c0392b);
+    box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
+}
+
+.finding-badge.twilio {
+    background: linear-gradient(45deg, #f22f46, #d62d42);
+    box-shadow: 0 2px 8px rgba(242, 47, 70, 0.3);
+}
+
+/* Results Header */
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.results-header h3 {
+    color: #e2e8f0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
 /* File Upload */
 .file-upload {
     border: 2px dashed #232341;
