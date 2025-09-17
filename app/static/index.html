@@ -95,6 +95,60 @@
                     <h3>Recent Scans</h3>
                     <div id="recentScansList" class="scans-list"></div>
                 </div>
+
+                <div class="resource-monitoring">
+                    <h3>System Resources</h3>
+                    <div class="resource-grid">
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">🔥</span>
+                                <span class="resource-title">CPU Usage</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="cpuUsage" class="resource-number">23%</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="cpuBar" style="width: 23%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">💾</span>
+                                <span class="resource-title">Memory</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="ramUsage" class="resource-number">1.2GB</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="ramBar" style="width: 45%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">🌐</span>
+                                <span class="resource-title">Network I/O</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="networkIO" class="resource-number">12MB/s</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="networkBar" style="width: 67%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">⚡</span>
+                                <span class="resource-title">Throughput</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="throughput" class="resource-number">1,247/sec</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="throughputBar" style="width: 82%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- New Scan Tab -->
@@ -116,6 +170,60 @@
                             </select>
                             <button type="button" id="uploadWordlistBtn" class="btn btn-secondary">Upload Custom</button>
                             <input type="file" id="wordlistFile" accept=".txt" style="display: none;">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Module Selection:</label>
+                            <div class="module-grid">
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="aws" checked>
+                                    <span class="module-icon">☁️</span>
+                                    <span class="module-name">AWS</span>
+                                    <span class="module-desc">Access Keys, STS Tokens</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="sendgrid" checked>
+                                    <span class="module-icon">📧</span>
+                                    <span class="module-name">SendGrid</span>
+                                    <span class="module-desc">API Keys</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="smtp" checked>
+                                    <span class="module-icon">📮</span>
+                                    <span class="module-name">SMTP</span>
+                                    <span class="module-desc">Credentials</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="mailgun">
+                                    <span class="module-icon">🔫</span>
+                                    <span class="module-name">Mailgun</span>
+                                    <span class="module-desc">API Keys</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="twilio">
+                                    <span class="module-icon">📱</span>
+                                    <span class="module-name">Twilio</span>
+                                    <span class="module-desc">Account SIDs</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="docker">
+                                    <span class="module-icon">🐳</span>
+                                    <span class="module-name">Docker</span>
+                                    <span class="module-desc">Exposed APIs</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="k8s">
+                                    <span class="module-icon">⚓</span>
+                                    <span class="module-name">Kubernetes</span>
+                                    <span class="module-desc">API Access</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="stripe">
+                                    <span class="module-icon">💳</span>
+                                    <span class="module-name">Stripe</span>
+                                    <span class="module-desc">Live Keys</span>
+                                </label>
+                            </div>
                         </div>
 
                         <div class="form-row">
