@@ -209,7 +209,7 @@ class PasswordChangeRequest(BaseModel):
 
 
 class HitExportRequest(BaseModel):
-    format: str = Field(regex="^(csv|jsonl)$")
+    format: str = Field(pattern="^(csv|jsonl)$")
     reveal: bool = False
     scan_ids: Optional[List[str]] = None
     service_filter: Optional[str] = None
@@ -219,7 +219,7 @@ class HitExportRequest(BaseModel):
 
 
 class ScanControlRequest(BaseModel):
-    action: str = Field(regex="^(start|pause|resume|stop)$")
+    action: str = Field(pattern="^(start|pause|resume|stop)$")
 
 
 class WebSocketMessage(BaseModel):

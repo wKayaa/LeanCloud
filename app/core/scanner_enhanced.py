@@ -1,7 +1,6 @@
 """Enhanced scanner with high concurrency support for httpxCloud v1"""
 
 import asyncio
-import asyncpg
 import httpx
 import time
 import uuid
@@ -13,7 +12,6 @@ from pathlib import Path
 import tempfile
 import json
 from asyncio_throttle import Throttler
-from asyncio_pool import AioPool
 
 import structlog
 from .models import (
@@ -21,8 +19,6 @@ from .models import (
     ScanStats, ScanResourceUsage, ModuleType, ValidationResult,
     ModuleResult, WSEventType
 )
-from .database import get_db_session, ScanDB, FindingDB, EventDB
-from .redis_manager import get_redis
 from .config import config_manager
 
 logger = structlog.get_logger()
@@ -169,6 +165,7 @@ class StatsManager:
     async def _broadcast_stats(self):
         """Broadcast statistics via Redis pub/sub"""
         try:
+            from .redis_manager import get_redis
             redis = get_redis()
             
             # Get resource usage
@@ -193,7 +190,7 @@ class StatsManager:
             await redis.publish(f"scan_stats:{self.scan_id}", stats)
             
         except Exception as e:
-            logger.error("Failed to broadcast stats", scan_id=self.scan_id, error=str(e))
+            logger.warning("Failed to broadcast stats", scan_id=self.scan_id, error=str(e))
 
 
 class EnhancedScanner:
@@ -229,7 +226,6 @@ class EnhancedScanner:
         self.http_client = httpx.AsyncClient(
             limits=limits,
             timeout=timeout,
-            http2=True,
             verify=False,  # For scanning purposes
             follow_redirects=True
         )
@@ -288,25 +284,29 @@ class EnhancedScanner:
         task = asyncio.create_task(self._run_scan(scan_id))
         self.scan_tasks[scan_id] = task
         
-        # Store in database
-        async with get_db_session() as session:
-            db_scan = ScanDB(
-                id=scan_id,
-                crack_id=crack_id,
-                status=ScanStatus.QUEUED.value,
-                targets=scan_request.targets,
-                wordlist=scan_request.wordlist,
-                modules=[m.value for m in scan_request.modules],
-                concurrency=scan_request.concurrency,
-                rate_limit=scan_request.rate_limit,
-                timeout=scan_request.timeout,
-                follow_redirects=scan_request.follow_redirects,
-                regex_rules=scan_request.regex_rules,
-                path_rules=scan_request.path_rules,
-                notes=scan_request.notes
-            )
-            session.add(db_scan)
-            await session.commit()
+        # Store in database if available
+        try:
+            from .database import get_db_session, ScanDB
+            async with get_db_session() as session:
+                db_scan = ScanDB(
+                    id=scan_id,
+                    crack_id=crack_id,
+                    status=ScanStatus.QUEUED.value,
+                    targets=scan_request.targets,
+                    wordlist=scan_request.wordlist,
+                    modules=[m.value for m in scan_request.modules],
+                    concurrency=scan_request.concurrency,
+                    rate_limit=scan_request.rate_limit,
+                    timeout=scan_request.timeout,
+                    follow_redirects=scan_request.follow_redirects,
+                    regex_rules=scan_request.regex_rules,
+                    path_rules=scan_request.path_rules,
+                    notes=scan_request.notes
+                )
+                session.add(db_scan)
+                await session.commit()
+        except Exception as e:
+            logger.warning("Failed to store scan in database", error=str(e))
         
         logger.info("Scan started", scan_id=scan_id, crack_id=crack_id, 
                    targets=len(scan_request.targets), concurrency=scan_request.concurrency)
@@ -338,8 +338,12 @@ class EnhancedScanner:
                 return
             
             # Enqueue URLs in Redis for processing
-            redis = get_redis()
-            await redis.enqueue_scan_urls(scan_id, urls)
+            try:
+                from .redis_manager import get_redis
+                redis = get_redis()
+                await redis.enqueue_scan_urls(scan_id, urls)
+            except Exception as e:
+                logger.warning("Failed to enqueue URLs in Redis", error=str(e))
             
             logger.info("Phase 2: High-concurrency scanning", scan_id=scan_id, 
                        total_urls=len(urls))
@@ -436,23 +440,23 @@ class EnhancedScanner:
             # Use adaptive concurrency
             current_concurrency = concurrency_mgr.current_concurrency
             
-            # Create async pool for batch processing
-            async with AioPool(size=current_concurrency) as pool:
-                tasks = []
+            # Create semaphore for batch processing
+            semaphore = asyncio.Semaphore(current_concurrency)
+            
+            tasks = []
+            for url in batch:
+                # Check circuit breaker
+                host = httpx.URL(url).host
+                if not circuit_breaker.is_allowed(host):
+                    continue
                 
-                for url in batch:
-                    # Check circuit breaker
-                    host = httpx.URL(url).host
-                    if not circuit_breaker.is_allowed(host):
-                        continue
-                    
-                    task = pool.spawn(self._scan_single_url(
-                        scan_id, url, throttler, circuit_breaker, stats_mgr
-                    ))
-                    tasks.append(task)
-                
-                # Wait for batch completion
-                await asyncio.gather(*tasks, return_exceptions=True)
+                task = asyncio.create_task(self._scan_single_url_with_semaphore(
+                    scan_id, url, throttler, circuit_breaker, stats_mgr, semaphore
+                ))
+                tasks.append(task)
+            
+            # Wait for batch completion
+            await asyncio.gather(*tasks, return_exceptions=True)
             
             processed += len(batch)
             scan_result.processed_urls = processed
@@ -474,6 +478,13 @@ class EnhancedScanner:
             logger.debug("Batch processed", scan_id=scan_id, 
                         processed=processed, total=len(urls),
                         concurrency=concurrency_mgr.current_concurrency)
+    
+    async def _scan_single_url_with_semaphore(self, scan_id: str, url: str, throttler: Throttler, 
+                                            circuit_breaker: CircuitBreaker, stats_mgr: StatsManager,
+                                            semaphore: asyncio.Semaphore):
+        """Scan a single URL with semaphore control"""
+        async with semaphore:
+            await self._scan_single_url(scan_id, url, throttler, circuit_breaker, stats_mgr)
     
     async def _scan_single_url(self, scan_id: str, url: str, throttler: Throttler, 
                              circuit_breaker: CircuitBreaker, stats_mgr: StatsManager):
@@ -580,28 +591,32 @@ class EnhancedScanner:
         # Store finding
         self.findings[scan_id].append(finding)
         
-        # Store in database
-        async with get_db_session() as session:
-            db_finding = FindingDB(
-                id=finding_id,
-                scan_id=scan_id,
-                crack_id=crack_id,
-                service=finding.service,
-                pattern_id=finding.pattern_id,
-                url=finding.url,
-                source_url=finding.source_url,
-                evidence=finding.evidence,
-                evidence_masked=finding.evidence_masked,
-                works=finding.works,
-                confidence=finding.confidence,
-                severity=finding.severity,
-                regions=finding.regions,
-                capabilities=finding.capabilities,
-                quotas=finding.quotas,
-                verified_identities=finding.verified_identities
-            )
-            session.add(db_finding)
-            await session.commit()
+        # Store in database if available
+        try:
+            from .database import get_db_session, FindingDB
+            async with get_db_session() as session:
+                db_finding = FindingDB(
+                    id=finding_id,
+                    scan_id=scan_id,
+                    crack_id=crack_id,
+                    service=finding.service,
+                    pattern_id=finding.pattern_id,
+                    url=finding.url,
+                    source_url=finding.source_url,
+                    evidence=finding.evidence,
+                    evidence_masked=finding.evidence_masked,
+                    works=finding.works,
+                    confidence=finding.confidence,
+                    severity=finding.severity,
+                    regions=finding.regions,
+                    capabilities=finding.capabilities,
+                    quotas=finding.quotas,
+                    verified_identities=finding.verified_identities
+                )
+                session.add(db_finding)
+                await session.commit()
+        except Exception as e:
+            logger.warning("Failed to store finding in database", error=str(e))
         
         # Update scan stats
         scan_result = self.active_scans[scan_id]
@@ -756,6 +771,7 @@ class EnhancedScanner:
     async def _broadcast_scan_event(self, scan_id: str, event_type: WSEventType, data: Dict[str, Any]):
         """Broadcast scan event via Redis pub/sub"""
         try:
+            from .redis_manager import get_redis
             redis = get_redis()
             message = {
                 "type": event_type.value,
@@ -765,7 +781,7 @@ class EnhancedScanner:
             }
             await redis.publish(f"scan_events:{scan_id}", message)
         except Exception as e:
-            logger.error("Failed to broadcast event", scan_id=scan_id, 
+            logger.warning("Failed to broadcast event", scan_id=scan_id, 
                         event_type=event_type.value, error=str(e))
     
     async def _create_default_wordlist(self, wordlist_path: Path):
