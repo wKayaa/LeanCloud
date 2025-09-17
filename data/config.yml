@@ -1,0 +1,31 @@
+auth_required: true
+default_patterns:
+- description: AWS Access Key ID
+  name: AWS Access Key
+  pattern: AKIA[A-Z0-9]{16}
+- description: SendGrid API Key
+  name: SendGrid API Key
+  pattern: SG\.[0-9A-Za-z\-_]{22}\.[0-9A-Za-z\-_]{43}
+- description: Mailgun API Key
+  name: Mailgun API Key
+  pattern: key-[0-9a-zA-Z]{32}
+- description: Stripe Live Secret Key
+  name: Stripe Live Key
+  pattern: sk_live_[0-9A-Za-z]{24,99}
+- description: Brevo (Sendinblue) API Key
+  name: Brevo API Key
+  pattern: xkeysib-[a-f0-9]{64}-[a-zA-Z0-9]{16}
+- description: Twilio Account SID
+  name: Twilio SID
+  pattern: AC[a-f0-9]{32}
+- description: Alibaba Cloud Access Key
+  name: Alibaba Access Key
+  pattern: (?i)\b((LTAI)(?i)[a-z0-9]{20})(?:['|\"|\\n|\\r|\\s|\\x60]|$)
+- description: AWS SES SMTP Endpoint
+  name: AWS SES SMTP
+  pattern: email-smtp\.(us|eu|ap|ca|cn|sa)-(central|(north|south)?(west|east)?)-[0-9]{1}\.amazonaws\.com
+first_run: true
+httpx_path: httpx
+max_scan_retention_days: 30
+rate_limit_per_minute: 60
+secret_key: change-me-in-production
