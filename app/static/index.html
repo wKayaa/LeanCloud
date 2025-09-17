@@ -271,10 +271,47 @@
             <!-- Results Tab -->
             <div id="results" class="tab-content">
                 <div class="results-header">
-                    <h3>Scan Results</h3>
-                    <button id="refreshResults" class="btn btn-secondary">Refresh</button>
+                    <h3>📊 Scan Results</h3>
+                    <div class="results-controls">
+                        <input type="text" id="searchResults" placeholder="🔍 Search results..." class="search-input">
+                        <select id="filterStatus" class="filter-select">
+                            <option value="">All Status</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="queued">Queued</option>
+                        </select>
+                        <button id="refreshResults" class="btn btn-secondary">🔄 Refresh</button>
+                        <button id="exportAllResults" class="btn btn-neon">📥 Export All</button>
+                    </div>
                 </div>
-                <div id="scansList" class="scans-list"></div>
+                
+                <!-- Results Statistics -->
+                <div class="results-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Scans:</span>
+                        <span class="stat-value" id="totalResultScans">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Findings:</span>
+                        <span class="stat-value" id="totalResultFindings">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Success Rate:</span>
+                        <span class="stat-value" id="resultSuccessRate">0%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Last Scan:</span>
+                        <span class="stat-value" id="lastScanTime">Never</span>
+                    </div>
+                </div>
+                
+                <!-- Virtual Scroller for Large Datasets -->
+                <div id="scansList" class="scans-list virtual-scroller">
+                    <div class="virtual-content" id="virtualContent">
+                        <!-- Dynamically populated scan items -->
+                    </div>
+                </div>
             </div>
 
             <!-- Config Tab -->
