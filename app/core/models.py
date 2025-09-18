@@ -250,6 +250,191 @@ class WSEventType(str, Enum):
     PONG = "pong"
 
 
+# Phase 1: New models for futuristic panel
+
+class ScanCreateRequest(BaseModel):
+    """Request model for creating new scans"""
+    name: str = Field(..., min_length=1, max_length=100)
+    timeout: int = Field(default=10, ge=1, le=300)
+    list_id: Optional[str] = None
+    modules: List[str] = Field(default=[])  # exploits: laravel, httpx, git, other
+    services: List[str] = Field(default=[])  # aws ses/sns, smtp, twilio, nexmo, plivo, sendgrid, mailjet
+    concurrency: int = Field(default=10000, ge=10000, le=100000)
+    paths_content: Optional[str] = None  # Content of uploaded paths.txt
+
+
+class ScanControlRequest(BaseModel):
+    """Request model for scan control actions"""
+    action: str = Field(..., pattern="^(pause|resume|stop)$")
+
+
+class ListUploadRequest(BaseModel):
+    """Model for list upload metadata"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+
+
+class ListItem(BaseModel):
+    """Model for individual list items"""
+    id: str
+    name: str
+    description: Optional[str] = None
+    size: int  # Number of entries
+    created_at: datetime
+    file_path: str
+
+
+class IPGeneratorRequest(BaseModel):
+    """Request model for IP generation"""
+    name: str = Field(..., min_length=1, max_length=100)
+    cidrs: List[str] = Field(..., min_items=1)
+    count: int = Field(..., ge=1, le=1000000)
+
+
+class TelegramSettings(BaseModel):
+    """Telegram notification settings"""
+    enabled: bool = False
+    bot_token: Optional[str] = None
+    chat_id: Optional[str] = None
+
+
+class SettingsUpdate(BaseModel):
+    """Settings update request"""
+    telegram: Optional[TelegramSettings] = None
+
+
+class TelegramTestRequest(BaseModel):
+    """Request to test Telegram settings"""
+    pass  # Empty body, uses current settings
+
+
+class ScanResponse(BaseModel):
+    """Response when creating a scan"""
+    scan_id: str
+    crack_id: str
+
+
+class HealthResponse(BaseModel):
+    """Health check response"""
+    status: str = "healthy"
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    version: str = "1.0.0"
+    features: Dict[str, bool] = Field(default_factory=dict)
+
+
+# Database models for Phase 1
+
+class ScanDB(BaseModel):
+    """Database model for scans"""
+    id: str
+    crack_id: str
+    name: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    
+    # Configuration
+    timeout: int
+    list_id: Optional[str] = None
+    modules: List[str] = Field(default=[])
+    services: List[str] = Field(default=[])
+    concurrency: int
+    
+    # Progress
+    processed_urls: int = 0
+    total_urls: int = 0
+    hits: int = 0
+    errors: int = 0
+
+
+class FindingDB(BaseModel):
+    """Database model for findings/hits"""
+    id: str
+    scan_id: str
+    crack_id: str
+    service: str
+    pattern_id: str
+    url: str
+    source_url: str
+    evidence: str
+    evidence_masked: str
+    works: bool = False
+    confidence: float = 0.5
+    severity: str = "medium"
+    created_at: datetime
+
+
+class ListItemDB(BaseModel):
+    """Database model for stored lists"""
+    id: str
+    name: str
+    description: Optional[str] = None
+    size: int
+    created_at: datetime
+    file_path: str
+
+
+class AuditLogDB(BaseModel):
+    """Database model for audit logs"""
+    id: str
+    timestamp: datetime
+    action: str
+    details: Dict[str, Any] = Field(default={})
+    ip_address: Optional[str] = None
+
+
+class StatSnapshotDB(BaseModel):
+    """Database model for statistics snapshots"""
+    id: str
+    timestamp: datetime
+    scan_id: Optional[str] = None
+    metrics: Dict[str, Any] = Field(default={})
+
+
+# Configuration models for Phase 1
+
+class ScannerConfig(BaseModel):
+    """Scanner configuration"""
+    adaptive_min: int = Field(default=10000, ge=1000)
+    adaptive_max: int = Field(default=100000, le=200000)
+
+
+class ValidationConfig(BaseModel):
+    """Validation configuration"""
+    providers: Dict[str, Any] = Field(default={
+        "aws": {"safe_mode": True},
+        "sendgrid": {"safe_mode": True}
+    })
+
+
+class ExportsConfig(BaseModel):
+    """Export configuration"""
+    mask_by_default: bool = True
+
+
+class RetentionConfig(BaseModel):
+    """Data retention configuration"""
+    scans_days: int = Field(default=30, ge=1)
+    logs_days: int = Field(default=90, ge=1)
+
+
+class UIThemeConfig(BaseModel):
+    """UI theme configuration"""
+    name: str = "futuristic"
+    dark_mode: bool = True
+
+
+class PhaseOneConfig(BaseModel):
+    """Complete Phase 1 configuration"""
+    scanner: ScannerConfig = Field(default_factory=ScannerConfig)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
+    exports: ExportsConfig = Field(default_factory=ExportsConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
+    ui: Dict[str, Any] = Field(default={"theme": {"name": "futuristic", "dark_mode": True}})
+
+
 class ValidationResult(BaseModel):
     """Result from service validation"""
     works: bool
