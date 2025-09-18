@@ -35,7 +35,6 @@ function initializeApp() {
     // Initialize lists cache and populate selectors
     loadLists();
 }
-}
 
 function setupEventListeners() {
     // Login form
