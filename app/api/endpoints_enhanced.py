@@ -727,6 +727,6 @@ async def update_settings(updates: Dict[str, Any]) -> Dict[str, str]:
 
 
 # Include sub-routers
-router.include_router(results_router, prefix="/api/v1", tags=["results"])
-router.include_router(grabber_router, prefix="/api/v1", tags=["grabber"])
-router.include_router(settings_router, prefix="/api/v1", tags=["settings"])
+router.include_router(results_router, tags=["results"])
+router.include_router(grabber_router, tags=["grabber"])
+router.include_router(settings_router, tags=["settings"])
