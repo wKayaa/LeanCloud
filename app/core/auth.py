@@ -115,15 +115,19 @@ class AuthManager:
         user.password_hash = self._hash_password(new_password)
         
         # If this was first run, mark it as complete
-        config = config_manager.get_config()
-        if config.first_run:
-            config_manager.update_config({"first_run": False})
+        from .settings import get_settings
+        settings = get_settings()
+        if settings.first_run:
+            # Update the first_run flag (in a real implementation, this would persist to database)
+            settings.first_run = False
         
         return True
     
     def is_first_run(self) -> bool:
         """Check if this is the first run requiring password change"""
-        return config_manager.get_config().first_run
+        from .settings import get_settings
+        settings = get_settings()
+        return settings.first_run
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:

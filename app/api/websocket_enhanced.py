@@ -175,9 +175,20 @@ class EnhancedConnectionManager:
                     recipients=len(self.active_connections) - len(disconnected))
     
     async def _start_redis_listeners(self):
-        """Start Redis pub/sub listeners"""
+        """Start Redis pub/sub listeners with graceful degradation"""
         try:
             redis = get_redis()
+            
+            # Check if Redis is healthy before starting listeners
+            if not await redis.is_healthy():
+                logger.warning("Redis is unavailable - WebSocket will work in degraded mode")
+                # Send degraded mode notification to all connections
+                await self.broadcast_to_all({
+                    "type": "warning",
+                    "message": "Real-time updates disabled (Redis offline)",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+                return
             
             # Listen for scan events
             scan_events_task = asyncio.create_task(
@@ -194,12 +205,21 @@ class EnhancedConnectionManager:
             logger.info("Redis listeners started")
             
         except Exception as e:
-            logger.error("Failed to start Redis listeners", error=str(e))
+            logger.error("Failed to start Redis listeners - continuing in degraded mode", error=str(e))
+            # Send degraded mode notification
+            await self.broadcast_to_all({
+                "type": "warning", 
+                "message": "Real-time updates disabled (Redis connection failed)",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
     
     async def _listen_scan_events(self, redis):
-        """Listen for scan events from Redis"""
+        """Listen for scan events from Redis with error handling"""
         try:
             pubsub = await redis.subscribe("scan_events:*")
+            if not pubsub:
+                logger.warning("Failed to subscribe to scan events - Redis unavailable")
+                return
             
             async for message in pubsub.listen():
                 if message["type"] == "message":
@@ -221,9 +241,12 @@ class EnhancedConnectionManager:
             logger.error("Scan events listener failed", error=str(e))
     
     async def _listen_dashboard_stats(self, redis):
-        """Listen for dashboard stats from Redis"""
+        """Listen for dashboard stats from Redis with error handling"""
         try:
             pubsub = await redis.subscribe("dashboard_stats")
+            if not pubsub:
+                logger.warning("Failed to subscribe to dashboard stats - Redis unavailable")
+                return
             
             async for message in pubsub.listen():
                 if message["type"] == "message":

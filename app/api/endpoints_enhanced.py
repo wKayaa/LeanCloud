@@ -46,7 +46,46 @@ router.include_router(settings_router, prefix="", tags=["settings"])
 @router.get("/auth/me")
 async def auth_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Return current authenticated user payload"""
-    return current_user
+    from ..core.auth import auth_manager
+    return {
+        **current_user,
+        "first_run": auth_manager.is_first_run()
+    }
+
+
+@router.post("/auth/change-password")
+async def change_password(
+    request: Dict[str, str],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, str]:
+    """Change user password"""
+    from ..core.auth import auth_manager
+    
+    # Extract passwords from request body
+    old_password = request.get("old_password")
+    new_password = request.get("new_password")
+    
+    if not old_password or not new_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="Both old_password and new_password are required"
+        )
+    
+    # Validate new password
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+    
+    # Change password
+    success = auth_manager.change_password(
+        current_user["sub"], 
+        old_password, 
+        new_password
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    return {"message": "Password changed successfully"}
 
 # Health and metrics endpoints
 @router.get("/healthz")
