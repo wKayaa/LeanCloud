@@ -47,6 +47,12 @@ async def login(auth_request: AuthRequest):
     }
 
 
+@router.get("/auth/me")
+async def auth_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Return current authenticated user payload"""
+    return current_user
+
+
 @router.post("/auth/change-password")
 async def change_password(
     request: PasswordChangeRequest,

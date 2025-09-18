@@ -38,6 +38,27 @@ class ScanRequest(BaseModel):
     path_rules: List[str] = Field(default=[], description="Custom path patterns")
     notes: Optional[str] = Field(default=None, description="Scan notes")
 
+    class Config:
+        # Allow extra keys from UI (e.g., crack_name, services) without validation errors
+        extra = "ignore"
+
+    @validator('modules', pre=True)
+    def coerce_modules(cls, v):
+        """Accept strings from UI and coerce to ModuleType; ignore unknowns"""
+        if isinstance(v, list):
+            coerced: List[ModuleType] = []
+            for item in v:
+                if isinstance(item, ModuleType):
+                    coerced.append(item)
+                    continue
+                try:
+                    coerced.append(ModuleType(str(item).lower()))
+                except ValueError:
+                    # silently ignore unsupported/unknown modules
+                    continue
+            return coerced
+        return v
+
     @validator('concurrency')
     def validate_concurrency(cls, v):
         if v > 50000:

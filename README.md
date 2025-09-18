@@ -361,6 +361,52 @@ echo "Scan completed. Results saved to validated-hits.json"
 
 ## Configuration
 
+### Production Configuration
+
+#### Secret Key Security
+**IMPORTANT**: Change the secret key in `data/config.yml` before production use:
+```yaml
+secret_key: "your-secure-random-key-here"  # NOT the default value!
+```
+The default `"change-me-in-production"` value is only for development.
+
+#### Redis Optional Mode
+Redis is **optional** but recommended for enhanced features:
+
+**Without Redis (Degraded Mode)**:
+- ✅ All core functionality works
+- ✅ Rate limiting falls back to in-memory
+- ✅ No error spam (thanks to intelligent backoff)
+- ❌ Limited real-time WebSocket features
+- ❌ Rate limiting not distributed across instances
+
+**With Redis**:
+- ✅ Distributed rate limiting
+- ✅ Enhanced WebSocket capabilities
+- ✅ Better multi-instance support
+
+To enable Redis, install and configure:
+```bash
+# Install Redis
+sudo apt-get install redis-server  # Ubuntu/Debian
+brew install redis                 # macOS
+
+# Configure in data/config.yml
+redis_url: "redis://localhost:6379/0"
+```
+
+#### Grabber Domain Seed Files
+The grabber requires domain seed files to operate:
+
+1. **Create the directory**: `data/lists/` (created automatically)
+2. **Add domain files**: Place `.txt` or `.list` files with base domains:
+   ```bash
+   echo -e "example.com\ntarget.org\ntest.net" > data/lists/domains.txt
+   ```
+3. **Start via API or UI**: The grabber will process these files to generate domain candidates
+
+**Without seed files**: Grabber returns HTTP 400 with clear error message (by design).
+
 ### Provider Pattern Mapping (v5.sh Integration)
 The scanner automatically maps detected patterns to provider tiles:
 
