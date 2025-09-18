@@ -4,7 +4,7 @@ import os
 import secrets
 import yaml
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 import structlog
@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     use_redis: bool = Field(default=True, env="USE_REDIS")
     
     # CORS
-    cors_origins: List[str] = Field(
-        default=["http://localhost:8000", "http://127.0.0.1:8000"], 
+    cors_origins: Union[str, List[str]] = Field(
+        default="http://localhost:8000,http://127.0.0.1:8000", 
         env="CORS_ORIGINS"
     )
     
@@ -86,8 +86,19 @@ class Settings(BaseSettings):
     @validator("cors_origins", pre=True)
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+            if v.strip():  # Only split if not empty
+                return [origin.strip() for origin in v.split(",") if origin.strip()]
+            else:
+                return ["http://localhost:8000", "http://127.0.0.1:8000"]  # Default fallback
+        elif isinstance(v, list):
+            return v
+        return ["http://localhost:8000", "http://127.0.0.1:8000"]
+    
+    def get_cors_origins(self) -> List[str]:
+        """Get CORS origins as a list"""
+        if isinstance(self.cors_origins, str):
+            return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return self.cors_origins
     
     @validator("secret_key")
     def validate_secret_key(cls, v, values):
