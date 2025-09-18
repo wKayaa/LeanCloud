@@ -13,11 +13,30 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
+from sqlalchemy.types import TypeDecorator, String as SQLString
+import json
 import structlog
 
 logger = structlog.get_logger()
 
 Base = declarative_base()
+
+
+class JSONStringList(TypeDecorator):
+    """SQLite-compatible array field using JSON"""
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return json.loads(value)
+        return value
 
 class ScanDB(Base):
     """Database model for scans"""
@@ -33,15 +52,15 @@ class ScanDB(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
     
     # Configuration
-    targets = Column(ARRAY(String), nullable=False)
+    targets = Column(JSONStringList, nullable=False)
     wordlist = Column(String(255), nullable=False)
-    modules = Column(ARRAY(String), default=[])
+    modules = Column(JSONStringList, default=[])
     concurrency = Column(Integer, default=50)
     rate_limit = Column(Integer, default=100)
     timeout = Column(Integer, default=10)
     follow_redirects = Column(Boolean, default=True)
-    regex_rules = Column(ARRAY(String), default=[])
-    path_rules = Column(ARRAY(String), default=[])
+    regex_rules = Column(JSONStringList, default=[])
+    path_rules = Column(JSONStringList, default=[])
     notes = Column(Text, nullable=True)
     
     # Stats
@@ -98,10 +117,10 @@ class FindingDB(Base):
     confidence = Column(Float, default=0.5)
     severity = Column(String(20), default="medium", index=True)
     
-    regions = Column(ARRAY(String), default=[])
-    capabilities = Column(ARRAY(String), default=[])
+    regions = Column(JSONStringList, default=[])
+    capabilities = Column(JSONStringList, default=[])
     quotas = Column(JSON, default={})
-    verified_identities = Column(ARRAY(String), default=[])
+    verified_identities = Column(JSONStringList, default=[])
     
     # Relationships
     scan = relationship("ScanDB", back_populates="findings")
@@ -152,7 +171,68 @@ class WordlistDB(Base):
     paths_count = Column(Integer, nullable=False)
     file_size = Column(Integer, nullable=False)  # bytes
     uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ListDB(Base):
+    """Database model for managed lists (targets/wordlists)"""
+    __tablename__ = "lists"
     
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True)
+    list_type = Column(String(50), nullable=False, index=True)  # 'targets', 'wordlist', 'ips'
+    description = Column(Text, nullable=True)
+    filename = Column(String(255), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    items_count = Column(Integer, nullable=False)
+    file_size = Column(Integer, nullable=False)  # bytes
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class IPListDB(Base):
+    """Database model for generated IP lists"""
+    __tablename__ = "ip_lists"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    cidrs = Column(JSONStringList, nullable=False)  # Source CIDR ranges
+    total_count = Column(Integer, nullable=False)
+    generated_count = Column(Integer, nullable=False)
+    filename = Column(String(255), nullable=False)  # Storage filename
+    file_size = Column(Integer, nullable=False)  # bytes
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class StatSnapshotDB(Base):
+    """Database model for historical statistics snapshots"""
+    __tablename__ = "stat_snapshots"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True, index=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    
+    # Scan-specific stats
+    total_scans = Column(Integer, default=0)
+    active_scans = Column(Integer, default=0)
+    completed_scans = Column(Integer, default=0)
+    failed_scans = Column(Integer, default=0)
+    
+    # Performance stats
+    avg_urls_per_sec = Column(Float, default=0.0)
+    avg_checks_per_sec = Column(Float, default=0.0)
+    
+    # System stats
+    cpu_percent = Column(Float, default=0.0)
+    ram_mb = Column(Float, default=0.0)
+    net_mbps_in = Column(Float, default=0.0)
+    net_mbps_out = Column(Float, default=0.0)
+    
+    # Findings stats
+    total_findings = Column(Integer, default=0)
+    findings_by_service = Column(JSON, default={})
+    findings_by_severity = Column(JSON, default={})
+
 
 class AuditLogDB(Base):
     """Database model for audit logs"""
@@ -176,6 +256,10 @@ Index('idx_findings_works_created', FindingDB.works, FindingDB.created_at)
 Index('idx_scans_status_created', ScanDB.status, ScanDB.created_at)
 Index('idx_events_scan_type_created', EventDB.scan_id, EventDB.event_type, EventDB.created_at)
 Index('idx_audit_logs_action_created', AuditLogDB.action, AuditLogDB.created_at)
+Index('idx_lists_type_created', ListDB.list_type, ListDB.created_at)
+Index('idx_ip_lists_created', IPListDB.created_at)
+Index('idx_stat_snapshots_timestamp', StatSnapshotDB.timestamp)
+Index('idx_stat_snapshots_scan_timestamp', StatSnapshotDB.scan_id, StatSnapshotDB.timestamp)
 
 
 class DatabaseManager:

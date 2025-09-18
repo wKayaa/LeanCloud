@@ -6,11 +6,11 @@ import time
 import uuid
 import re
 import psutil
+import json
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, AsyncGenerator, Set
 from pathlib import Path
 import tempfile
-import json
 from asyncio_throttle import Throttler
 
 import structlog
@@ -27,7 +27,7 @@ logger = structlog.get_logger()
 class ConcurrencyManager:
     """Manages adaptive concurrency and backpressure"""
     
-    def __init__(self, initial_concurrency: int = 50, max_concurrency: int = 50000):
+    def __init__(self, initial_concurrency: int = 50, max_concurrency: int = 100000):
         self.current_concurrency = initial_concurrency
         self.max_concurrency = max_concurrency
         self.min_concurrency = 10
@@ -36,8 +36,40 @@ class ConcurrencyManager:
         self.last_adjustment = time.time()
         self.adjustment_interval = 10  # seconds
         
+        # Enhanced adaptive parameters
+        self.target_latency_ms = 500  # Target response latency
+        self.error_rate_trip = 0.05  # 5% error rate trips scaling down
+        self.step_percentage = 0.2  # 20% adjustment steps
+        self.window_sec = 30  # Moving window for measurements
+        
+        # Latency tracking
+        self.latency_samples = []
+        self.latency_window_size = 100
+        
+    def record_request(self, latency_ms: float, success: bool):
+        """Record request outcome with latency"""
+        # Update latency tracking
+        self.latency_samples.append(latency_ms)
+        if len(self.latency_samples) > self.latency_window_size:
+            self.latency_samples.pop(0)
+        
+        # Update success/error counts
+        if success:
+            self.success_count += 1
+        else:
+            self.error_count += 1
+    
+    def get_p50_latency(self) -> float:
+        """Get median latency from recent samples"""
+        if not self.latency_samples:
+            return 0.0
+        
+        sorted_samples = sorted(self.latency_samples)
+        mid = len(sorted_samples) // 2
+        return sorted_samples[mid]
+    
     def adjust_concurrency(self):
-        """Adjust concurrency based on success/error rate"""
+        """Adjust concurrency based on success/error rate and latency"""
         now = time.time()
         if now - self.last_adjustment < self.adjustment_interval:
             return
@@ -47,16 +79,21 @@ class ConcurrencyManager:
             return
             
         error_rate = self.error_count / total_requests
+        p50_latency = self.get_p50_latency()
         
-        if error_rate < 0.01:  # < 1% error rate - increase concurrency
-            self.current_concurrency = min(
-                int(self.current_concurrency * 1.2), 
-                self.max_concurrency
-            )
-        elif error_rate > 0.05:  # > 5% error rate - decrease concurrency
+        old_concurrency = self.current_concurrency
+        
+        # Scale down if error rate is too high or latency is too high
+        if error_rate > self.error_rate_trip or p50_latency > self.target_latency_ms:
             self.current_concurrency = max(
-                int(self.current_concurrency * 0.8), 
+                int(self.current_concurrency * (1 - self.step_percentage)), 
                 self.min_concurrency
+            )
+        # Scale up if error rate is low and latency is good
+        elif error_rate < 0.01 and p50_latency < self.target_latency_ms * 0.5:
+            self.current_concurrency = min(
+                int(self.current_concurrency * (1 + self.step_percentage)), 
+                self.max_concurrency
             )
         
         # Reset counters
@@ -64,16 +101,19 @@ class ConcurrencyManager:
         self.error_count = 0
         self.last_adjustment = now
         
-        logger.info("Concurrency adjusted", 
-                   concurrency=self.current_concurrency, 
-                   error_rate=error_rate)
+        if old_concurrency != self.current_concurrency:
+            logger.info("Concurrency adjusted", 
+                       old_concurrency=old_concurrency,
+                       new_concurrency=self.current_concurrency, 
+                       error_rate=error_rate,
+                       p50_latency_ms=p50_latency)
     
     def record_success(self):
-        """Record successful request"""
+        """Record successful request (backward compatibility)"""
         self.success_count += 1
     
     def record_error(self):
-        """Record failed request"""
+        """Record failed request (backward compatibility)"""
         self.error_count += 1
 
 
@@ -120,11 +160,12 @@ class CircuitBreaker:
 
 
 class StatsManager:
-    """Manages real-time statistics"""
+    """Manages real-time statistics with moving averages and ETA"""
     
-    def __init__(self, scan_id: str, crack_id: str):
+    def __init__(self, scan_id: str, crack_id: str, total_urls: int = 0):
         self.scan_id = scan_id
         self.crack_id = crack_id
+        self.total_urls = total_urls
         self.start_time = time.time()
         self.last_update = time.time()
         
@@ -133,64 +174,174 @@ class StatsManager:
         self.urls_count = 0
         self.hits_count = 0
         self.errors_count = 0
+        self.invalid_urls_count = 0
         
-        # Rates (per second)
+        # Moving averages (using collections.deque for efficiency)
+        from collections import deque
+        self.checks_per_sec_samples = deque(maxlen=60)  # 1 minute window
+        self.urls_per_sec_samples = deque(maxlen=60)
+        
+        # Current rates (per second)
         self.checks_per_sec = 0.0
         self.urls_per_sec = 0.0
+        self.avg_checks_per_sec = 0.0
+        self.avg_urls_per_sec = 0.0
+        
+        # ETA calculation
+        self.eta_seconds = None
         
         # Resource tracking
         self.process = psutil.Process()
         
-    async def update_stats(self, checks: int = 0, urls: int = 0, hits: int = 0, errors: int = 0):
+        # WebSocket subscribers
+        self.websocket_clients = set()
+        
+    def set_total_urls(self, total: int):
+        """Set total URLs for ETA calculation"""
+        self.total_urls = total
+        
+    def calculate_eta(self) -> Optional[int]:
+        """Calculate estimated time to completion"""
+        if self.total_urls <= 0 or self.urls_count <= 0:
+            return None
+            
+        remaining_urls = self.total_urls - self.urls_count
+        if remaining_urls <= 0:
+            return 0
+            
+        if self.avg_urls_per_sec > 0:
+            return int(remaining_urls / self.avg_urls_per_sec)
+        elif self.urls_per_sec > 0:
+            return int(remaining_urls / self.urls_per_sec)
+        else:
+            return None
+    
+    async def update_stats(self, checks: int = 0, urls: int = 0, hits: int = 0, errors: int = 0, invalid_urls: int = 0):
         """Update statistics and broadcast"""
         now = time.time()
         time_diff = now - self.last_update
         
-        if time_diff >= 1.0:  # Update rates every second
-            self.checks_per_sec = (self.checks_count - getattr(self, '_last_checks', 0)) / time_diff
-            self.urls_per_sec = (self.urls_count - getattr(self, '_last_urls', 0)) / time_diff
-            
-            self._last_checks = self.checks_count
-            self._last_urls = self.urls_count
-            self.last_update = now
-            
-            # Broadcast stats via Redis pub/sub
-            await self._broadcast_stats()
-        
+        # Update counters
         self.checks_count += checks
         self.urls_count += urls
         self.hits_count += hits
         self.errors_count += errors
+        self.invalid_urls_count += invalid_urls
+        
+        if time_diff >= 1.0:  # Update rates every second
+            # Calculate instantaneous rates
+            checks_delta = checks if hasattr(self, '_last_checks_update') else self.checks_count
+            urls_delta = urls if hasattr(self, '_last_urls_update') else self.urls_count
+            
+            self.checks_per_sec = checks_delta / time_diff if time_diff > 0 else 0
+            self.urls_per_sec = urls_delta / time_diff if time_diff > 0 else 0
+            
+            # Add to moving average samples
+            self.checks_per_sec_samples.append(self.checks_per_sec)
+            self.urls_per_sec_samples.append(self.urls_per_sec)
+            
+            # Calculate moving averages
+            self.avg_checks_per_sec = sum(self.checks_per_sec_samples) / len(self.checks_per_sec_samples)
+            self.avg_urls_per_sec = sum(self.urls_per_sec_samples) / len(self.urls_per_sec_samples)
+            
+            # Calculate ETA
+            self.eta_seconds = self.calculate_eta()
+            
+            self.last_update = now
+            self._last_checks_update = checks
+            self._last_urls_update = urls
+            
+            # Broadcast stats via WebSocket and Redis
+            await self._broadcast_stats()
     
-    async def _broadcast_stats(self):
-        """Broadcast statistics via Redis pub/sub"""
+    def get_progress_percent(self) -> float:
+        """Get completion progress as percentage"""
+        if self.total_urls <= 0:
+            return 0.0
+        return min(100.0, (self.urls_count / self.total_urls) * 100.0)
+    
+    def get_stats_dict(self) -> Dict[str, Any]:
+        """Get current statistics as dictionary"""
+        # Get resource usage
+        cpu_percent = self.process.cpu_percent()
+        memory_info = self.process.memory_info()
+        ram_mb = memory_info.rss / 1024 / 1024
+        
+        # Get network I/O (if available)
         try:
-            from .redis_manager import get_redis
-            redis = get_redis()
-            
-            # Get resource usage
-            cpu_percent = self.process.cpu_percent()
-            memory_info = self.process.memory_info()
-            ram_mb = memory_info.rss / 1024 / 1024
-            
-            stats = {
-                "scan_id": self.scan_id,
-                "crack_id": self.crack_id,
-                "checks_per_sec": self.checks_per_sec,
+            net_io = psutil.net_io_counters()
+            # Calculate network rates (simplified)
+            net_mbps_in = 0.0  # Would need historical tracking for accurate rates
+            net_mbps_out = 0.0
+        except:
+            net_mbps_in = 0.0
+            net_mbps_out = 0.0
+        
+        return {
+            "scan_id": self.scan_id,
+            "crack_id": self.crack_id,
+            "status": "running",  # Will be updated by scanner
+            "progress": {
+                "processed_urls": self.urls_count,
+                "total_urls": self.total_urls,
+                "progress_percent": self.get_progress_percent(),
+                "checks_count": self.checks_count,
+                "hits_count": self.hits_count,
+                "errors_count": self.errors_count,
+                "invalid_urls_count": self.invalid_urls_count
+            },
+            "rates": {
                 "urls_per_sec": self.urls_per_sec,
-                "total_checks": self.checks_count,
-                "total_urls": self.urls_count,
-                "total_hits": self.hits_count,
-                "total_errors": self.errors_count,
+                "avg_urls_per_sec": self.avg_urls_per_sec,
+                "checks_per_sec": self.checks_per_sec,
+                "avg_checks_per_sec": self.avg_checks_per_sec
+            },
+            "eta_seconds": self.eta_seconds,
+            "resources": {
                 "cpu_percent": cpu_percent,
                 "ram_mb": ram_mb,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+                "net_mbps_in": net_mbps_in,
+                "net_mbps_out": net_mbps_out
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    
+    async def _broadcast_stats(self):
+        """Broadcast statistics via WebSocket and Redis pub/sub"""
+        stats = self.get_stats_dict()
+        
+        try:
+            # Broadcast to WebSocket clients
+            if self.websocket_clients:
+                message = {
+                    "type": "scan_stats",
+                    "data": stats
+                }
+                for client in list(self.websocket_clients):
+                    try:
+                        await client.send_json(message)
+                    except Exception as e:
+                        logger.warning("Failed to send WebSocket message", client=str(client), error=str(e))
+                        self.websocket_clients.discard(client)
             
-            await redis.publish(f"scan_stats:{self.scan_id}", stats)
-            
+            # Broadcast via Redis pub/sub (if available)
+            try:
+                from .redis_manager import get_redis
+                redis = get_redis()
+                await redis.publish(f"scan_stats:{self.scan_id}", json.dumps(stats))
+            except Exception:
+                pass  # Redis is optional
+                
         except Exception as e:
             logger.warning("Failed to broadcast stats", scan_id=self.scan_id, error=str(e))
+    
+    def add_websocket_client(self, websocket):
+        """Add WebSocket client for live updates"""
+        self.websocket_clients.add(websocket)
+    
+    def remove_websocket_client(self, websocket):
+        """Remove WebSocket client"""
+        self.websocket_clients.discard(websocket)
 
 
 class EnhancedScanner:
