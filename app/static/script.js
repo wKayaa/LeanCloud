@@ -1105,3 +1105,463 @@ function pauseScan(scanId) {
 function stopScan(scanId) {
     console.log('Stop scan:', scanId);
 }
+
+// ===== FRENCH UI FUNCTIONS =====
+
+// Statistiques page functions
+async function loadStatistiques() {
+    try {
+        console.log('Loading statistiques...');
+        
+        // Get provider stats
+        const response = await fetch(`${API_BASE}/results/providers`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const providerStats = await response.json();
+            updateProviderTiles(providerStats);
+        }
+        
+        // Get result counters
+        const countersResponse = await fetch(`${API_BASE}/results/counters`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (countersResponse.ok) {
+            const counters = await countersResponse.json();
+            updateResultCounters(counters);
+        }
+        
+    } catch (error) {
+        console.error('Failed to load statistiques:', error);
+    }
+}
+
+function updateProviderTiles(stats) {
+    document.getElementById('awsCount').textContent = stats.aws || 0;
+    document.getElementById('sendgridCount').textContent = stats.sendgrid || 0;
+    document.getElementById('sparkpostCount').textContent = stats.sparkpost || 0;
+    document.getElementById('twilioCount').textContent = stats.twilio || 0;
+    document.getElementById('brevoCount').textContent = stats.brevo || 0;
+    document.getElementById('mailgunCount').textContent = stats.mailgun || 0;
+}
+
+function updateStatisticsMetrics(data) {
+    // Update progress
+    const progressPercent = data.progress_percent || 0;
+    document.getElementById('progressPercentage').textContent = `${progressPercent.toFixed(1)}%`;
+    document.getElementById('progressBarFill').style.width = `${progressPercent}%`;
+    
+    // Update URL counts
+    document.getElementById('processedUrlsCount').textContent = data.processed_urls || 0;
+    document.getElementById('totalUrlsCount').textContent = data.total_urls || 0;
+    
+    // Update performance metrics
+    document.getElementById('urlsPerSecSpeed').textContent = `${data.urls_per_sec || 0} URLs/sec`;
+    document.getElementById('httpsReqsPerSec').textContent = data.https_reqs_per_sec || 0;
+    document.getElementById('precisionPercent').textContent = `${(data.precision_percent || 0).toFixed(2)}%`;
+    document.getElementById('scanDuration').textContent = formatDuration(data.duration_seconds || 0);
+    document.getElementById('scanETA').textContent = data.eta_seconds ? formatDuration(data.eta_seconds) : 'En cours...';
+    document.getElementById('totalHitsCount').textContent = data.hits_count || 0;
+}
+
+// Résultats page functions
+async function loadResultats() {
+    try {
+        console.log('Loading résultats...');
+        
+        const service = document.getElementById('serviceFilterRes')?.value || '';
+        const validated = document.getElementById('validationFilter')?.value || '';
+        const sort = document.getElementById('sortFilter')?.value || 'date_desc';
+        
+        const params = new URLSearchParams();
+        if (service) params.append('service', service);
+        if (validated !== '') params.append('validated', validated);
+        params.append('sort', sort);
+        params.append('limit', '50');
+        
+        const response = await fetch(`${API_BASE}/results?${params}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            updateResultsList(data.hits);
+            updateResultCounters(data.counters);
+        }
+        
+    } catch (error) {
+        console.error('Failed to load résultats:', error);
+    }
+}
+
+function updateResultsList(hits) {
+    const container = document.getElementById('resultsList');
+    if (!container) return;
+    
+    if (hits.length === 0) {
+        container.innerHTML = '<div class="no-results">Aucun résultat trouvé</div>';
+        return;
+    }
+    
+    container.innerHTML = hits.map(hit => `
+        <div class="result-item" onclick="showResultDetails('${hit.id}')">
+            <div class="result-header">
+                <div class="result-service ${hit.service}">${hit.service.toUpperCase()}</div>
+                <div class="result-status ${hit.validated ? 'valid' : 'invalid'}">
+                    ${hit.validated ? 'Validé' : 'Invalide'}
+                </div>
+            </div>
+            <div class="result-url">${hit.url}</div>
+            <div class="result-time">${formatDate(hit.discovered_at)}</div>
+        </div>
+    `).join('');
+}
+
+function updateResultCounters(counters) {
+    if (document.getElementById('totalCounter')) {
+        document.getElementById('totalCounter').textContent = counters.total || 0;
+    }
+    if (document.getElementById('validCounter')) {
+        document.getElementById('validCounter').textContent = counters.valides || 0;
+    }
+    if (document.getElementById('invalidCounter')) {
+        document.getElementById('invalidCounter').textContent = counters.invalides || 0;
+    }
+}
+
+async function showResultDetails(hitId) {
+    try {
+        const response = await fetch(`${API_BASE}/results/${hitId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const hit = await response.json();
+            
+            const drawer = document.getElementById('detailsDrawer');
+            const content = document.getElementById('drawerContent');
+            
+            content.innerHTML = `
+                <div class="detail-section">
+                    <h4>Informations Générales</h4>
+                    <div class="detail-row">
+                        <span class="detail-label">URL:</span>
+                        <span class="detail-value">${hit.url}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Service:</span>
+                        <span class="detail-value service-chip ${hit.service}">${hit.service.toUpperCase()}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Statut:</span>
+                        <span class="detail-value status-chip ${hit.validated ? 'valid' : 'invalid'}">
+                            ${hit.validated ? 'Validé' : 'Invalide'}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Découvert:</span>
+                        <span class="detail-value">${formatDateTime(hit.discovered_at)}</span>
+                    </div>
+                </div>
+                
+                ${hit.provider_payload ? `
+                <div class="detail-section">
+                    <h4>Informations Fournisseur</h4>
+                    <div class="detail-row">
+                        <span class="detail-label">Clé API (masquée):</span>
+                        <span class="detail-value masked">${hit.provider_payload.api_key_masked}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Statut:</span>
+                        <span class="detail-value">${hit.provider_payload.status}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Raison:</span>
+                        <span class="detail-value">${hit.provider_payload.reason || 'N/A'}</span>
+                    </div>
+                    ${hit.provider_payload.quota ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Quota:</span>
+                        <span class="detail-value">${JSON.stringify(hit.provider_payload.quota)}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
+            `;
+            
+            drawer.style.display = 'block';
+        }
+        
+    } catch (error) {
+        console.error('Failed to load result details:', error);
+    }
+}
+
+async function purgeAllResults() {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer tous les résultats ? Cette action est irréversible.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/results/purge`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            alert('Tous les résultats ont été supprimés avec succès.');
+            loadResultats(); // Reload the results
+        } else {
+            alert('Erreur lors de la suppression des résultats.');
+        }
+        
+    } catch (error) {
+        console.error('Failed to purge results:', error);
+        alert('Erreur lors de la suppression des résultats.');
+    }
+}
+
+// Domaines page functions
+async function loadDomaines() {
+    try {
+        console.log('Loading domaines...');
+        
+        const response = await fetch(`${API_BASE}/lists`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const lists = await response.json();
+            updateDomainsList(lists);
+        }
+        
+        // Load grabber status
+        const grabberResponse = await fetch(`${API_BASE}/grabber/status`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (grabberResponse.ok) {
+            const status = await grabberResponse.json();
+            updateGrabberStatus(status);
+        }
+        
+    } catch (error) {
+        console.error('Failed to load domaines:', error);
+    }
+}
+
+function updateDomainsList(lists) {
+    const container = document.getElementById('domainsList');
+    if (!container) return;
+    
+    if (lists.length === 0) {
+        container.innerHTML = '<div class="no-files">Aucun fichier de domaine trouvé</div>';
+        return;
+    }
+    
+    container.innerHTML = lists.map(list => `
+        <div class="domain-file">
+            <div class="file-info">
+                <div class="file-name">📄 ${list.filename}</div>
+                <div class="file-details">
+                    ${list.size} entrées • ${formatFileSize(list.file_size)} • ${formatDate(list.created_at)}
+                </div>
+            </div>
+            <div class="file-actions">
+                <button class="btn btn-sm btn-danger" onclick="deleteDomainList('${list.id}')">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateGrabberStatus(status) {
+    document.getElementById('grabberState').textContent = status.active ? 'En cours' : 'Arrêté';
+    document.getElementById('processedDomains').textContent = status.processed_domains || 0;
+    document.getElementById('generatedCandidates').textContent = status.generated_candidates || 0;
+    
+    const startBtn = document.getElementById('startGrabberBtn');
+    const stopBtn = document.getElementById('stopGrabberBtn');
+    
+    if (status.active) {
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+    } else {
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    }
+}
+
+async function startGrabber() {
+    try {
+        const response = await fetch(`${API_BASE}/grabber/start`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            alert(result.message);
+            loadDomaines(); // Refresh status
+        } else {
+            const error = await response.json();
+            alert(`Erreur: ${error.detail}`);
+        }
+        
+    } catch (error) {
+        console.error('Failed to start grabber:', error);
+        alert('Erreur lors du démarrage du grabber.');
+    }
+}
+
+async function stopGrabber() {
+    try {
+        const response = await fetch(`${API_BASE}/grabber/stop`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            alert(result.message);
+            loadDomaines(); // Refresh status
+        } else {
+            const error = await response.json();
+            alert(`Erreur: ${error.detail}`);
+        }
+        
+    } catch (error) {
+        console.error('Failed to stop grabber:', error);
+        alert('Erreur lors de l\'arrêt du grabber.');
+    }
+}
+
+async function deleteDomainList(listId) {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce fichier ?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/lists/${listId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            loadDomaines(); // Refresh list
+        } else {
+            alert('Erreur lors de la suppression du fichier.');
+        }
+        
+    } catch (error) {
+        console.error('Failed to delete domain list:', error);
+        alert('Erreur lors de la suppression du fichier.');
+    }
+}
+
+// Cracker control functions
+function updateCrackerStatus(isRunning) {
+    const statusEl = document.getElementById('crackerStatus');
+    const stateEl = document.getElementById('crackerState');
+    const messageEl = document.getElementById('crackerMessage');
+    const startBtn = document.getElementById('startCrackerBtn');
+    const stopBtn = document.getElementById('stopCrackerBtn');
+    
+    if (isRunning) {
+        statusEl.textContent = 'EN COURS';
+        statusEl.className = 'status-value running';
+        stateEl.textContent = 'Actif';
+        messageEl.textContent = 'Scan en cours d\'exécution';
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+    } else {
+        statusEl.textContent = 'ARRÊTÉ';
+        statusEl.className = 'status-value stopped';
+        stateEl.textContent = 'Prêt';
+        messageEl.textContent = 'Prêt pour le scan';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    }
+}
+
+// Utility functions
+function formatDuration(seconds) {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+    return `${Math.round(seconds / 3600)}h`;
+}
+
+function formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString('fr-FR');
+}
+
+function formatDateTime(dateString) {
+    return new Date(dateString).toLocaleString('fr-FR');
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
+    return `${Math.round(bytes / 1048576)} MB`;
+}
+
+// Event listeners for French UI
+document.addEventListener('DOMContentLoaded', function() {
+    // Close drawer
+    const closeDrawer = document.getElementById('closeDrawer');
+    if (closeDrawer) {
+        closeDrawer.addEventListener('click', () => {
+            document.getElementById('detailsDrawer').style.display = 'none';
+        });
+    }
+    
+    // Filter change handlers
+    const validationFilter = document.getElementById('validationFilter');
+    const serviceFilterRes = document.getElementById('serviceFilterRes');
+    const sortFilter = document.getElementById('sortFilter');
+    
+    if (validationFilter) validationFilter.addEventListener('change', loadResultats);
+    if (serviceFilterRes) serviceFilterRes.addEventListener('change', loadResultats);
+    if (sortFilter) sortFilter.addEventListener('change', loadResultats);
+    
+    // Button handlers
+    const purgeBtn = document.getElementById('purgeResultsBtn');
+    if (purgeBtn) purgeBtn.addEventListener('click', purgeAllResults);
+    
+    const startGrabberBtn = document.getElementById('startGrabberBtn');
+    const stopGrabberBtn = document.getElementById('stopGrabberBtn');
+    if (startGrabberBtn) startGrabberBtn.addEventListener('click', startGrabber);
+    if (stopGrabberBtn) stopGrabberBtn.addEventListener('click', stopGrabber);
+    
+    const refreshDomainsBtn = document.getElementById('refreshDomainsBtn');
+    if (refreshDomainsBtn) refreshDomainsBtn.addEventListener('click', loadDomaines);
+    
+    const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+    if (refreshStatsBtn) refreshStatsBtn.addEventListener('click', loadStatistiques);
+    
+    const refreshCrackerBtn = document.getElementById('refreshCrackerBtn');
+    if (refreshCrackerBtn) refreshCrackerBtn.addEventListener('click', () => {
+        // Refresh cracker status - this would check actual scan status
+        updateCrackerStatus(false); // Default to stopped
+    });
+});
+
+// Update the switchTab function to handle new tabs
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabName) {
+    originalSwitchTab(tabName);
+    
+    // Load data for specific tabs
+    switch(tabName) {
+        case 'statistiques':
+            loadStatistiques();
+            break;
+        case 'resultats':
+            loadResultats();
+            break;
+        case 'domaines':
+            loadDomaines();
+            break;
+    }
+};

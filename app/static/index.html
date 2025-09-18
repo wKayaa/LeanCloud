@@ -100,13 +100,17 @@
                     <span class="nav-icon">📋</span>
                     <span class="nav-label">Lists</span>
                 </button>
-                <button class="nav-btn" data-tab="ipgen">
-                    <span class="nav-icon">🌐</span>
-                    <span class="nav-label">IP Generator</span>
+                <button class="nav-btn" data-tab="statistiques">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-label">Statistiques</span>
                 </button>
-                <button class="nav-btn" data-tab="hits">
+                <button class="nav-btn" data-tab="resultats">
                     <span class="nav-icon">🎯</span>
-                    <span class="nav-label">Hits</span>
+                    <span class="nav-label">Résultats</span>
+                </button>
+                <button class="nav-btn" data-tab="domaines">
+                    <span class="nav-icon">🌐</span>
+                    <span class="nav-label">Domaines</span>
                 </button>
                 <button class="nav-btn" data-tab="settings">
                     <span class="nav-icon">⚙️</span>
@@ -117,6 +121,31 @@
             <!-- Dashboard Tab -->
             <div id="dashboard" class="tab-content active">
                 <div class="dashboard-grid">
+                    <!-- Contrôle du Cracker Section (French UI) -->
+                    <div class="cracker-control-section">
+                        <h3>🎮 Contrôle du Cracker</h3>
+                        <div class="cracker-panel">
+                            <div class="cracker-status">
+                                <div class="status-row">
+                                    <span class="status-label">Statut:</span>
+                                    <span id="crackerStatus" class="status-value stopped">ARRÊTÉ</span>
+                                </div>
+                                <div class="status-row">
+                                    <span class="status-label">État:</span>
+                                    <span id="crackerState" class="status-value">Prêt</span>
+                                </div>
+                                <div class="status-message">
+                                    <span id="crackerMessage">Prêt pour le scan</span>
+                                </div>
+                            </div>
+                            <div class="cracker-controls">
+                                <button id="startCrackerBtn" class="btn btn-success">▶️ Démarrer</button>
+                                <button id="stopCrackerBtn" class="btn btn-danger" disabled>⏹️ Arrêter</button>
+                                <button id="refreshCrackerBtn" class="btn btn-secondary">🔄 Actualiser</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Live Stats Cards -->
                     <div class="stats-section">
                         <h3>🔥 Live Intelligence</h3>
@@ -544,46 +573,227 @@
                 </div>
             </div>
 
-            <!-- Hits Tab -->
-            <div id="hits" class="tab-content">
-                <div class="hits-container">
-                    <div class="hits-header">
-                        <h2>🎯 Intelligence Hits</h2>
-                        <div class="hits-actions">
-                            <button id="exportHitsBtn" class="btn btn-accent">📊 Export Results</button>
+            <!-- Statistiques Tab (French UI) -->
+            <div id="statistiques" class="tab-content">
+                <div class="statistiques-container">
+                    <div class="statistiques-header">
+                        <h2>📈 Statistiques du Scan</h2>
+                        <div class="scan-controls">
+                            <button id="refreshStatsBtn" class="btn btn-accent">🔄 Actualiser</button>
                         </div>
                     </div>
 
-                    <!-- Filters and Search -->
-                    <div class="hits-filters">
+                    <!-- Progress Section -->
+                    <div class="progress-section">
+                        <div class="progress-card">
+                            <div class="progress-header">
+                                <h3>Progression du Scan</h3>
+                                <div id="progressPercentage" class="progress-value">0%</div>
+                            </div>
+                            <div class="progress-bar-large">
+                                <div id="progressBarFill" class="progress-fill-large"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="processedUrlsCount">0</span> URLs traitées sur <span id="totalUrlsCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Provider Tiles -->
+                    <div class="provider-tiles">
+                        <h3>Hits par Fournisseur</h3>
+                        <div class="tiles-grid">
+                            <div class="provider-tile aws">
+                                <div class="tile-icon">☁️</div>
+                                <div class="tile-name">AWS</div>
+                                <div id="awsCount" class="tile-count">0</div>
+                            </div>
+                            <div class="provider-tile sendgrid">
+                                <div class="tile-icon">📧</div>
+                                <div class="tile-name">SendGrid</div>
+                                <div id="sendgridCount" class="tile-count">0</div>
+                            </div>
+                            <div class="provider-tile sparkpost">
+                                <div class="tile-icon">⚡</div>
+                                <div class="tile-name">SparkPost</div>
+                                <div id="sparkpostCount" class="tile-count">0</div>
+                            </div>
+                            <div class="provider-tile twilio">
+                                <div class="tile-icon">📱</div>
+                                <div class="tile-name">Twilio</div>
+                                <div id="twilioCount" class="tile-count">0</div>
+                            </div>
+                            <div class="provider-tile brevo">
+                                <div class="tile-icon">🔔</div>
+                                <div class="tile-name">Brevo</div>
+                                <div id="brevoCount" class="tile-count">0</div>
+                            </div>
+                            <div class="provider-tile mailgun">
+                                <div class="tile-icon">🔫</div>
+                                <div class="tile-name">MailGun</div>
+                                <div id="mailgunCount" class="tile-count">0</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Metrics -->
+                    <div class="performance-metrics">
+                        <h3>Performance</h3>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-label">Vitesse</div>
+                                <div id="urlsPerSecSpeed" class="metric-value">0 URLs/sec</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Requêtes HTTPS/sec</div>
+                                <div id="httpsReqsPerSec" class="metric-value">0</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Précision</div>
+                                <div id="precisionPercent" class="metric-value">0.00%</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Durée</div>
+                                <div id="scanDuration" class="metric-value">0s</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">ETA</div>
+                                <div id="scanETA" class="metric-value">En cours...</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Hits totaux</div>
+                                <div id="totalHitsCount" class="metric-value success">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Résultats Tab (French UI) -->
+            <div id="resultats" class="tab-content">
+                <div class="resultats-container">
+                    <div class="resultats-header">
+                        <h2>🎯 Résultats des Hits</h2>
+                        <div class="resultats-actions">
+                            <button id="exportResultsBtn" class="btn btn-accent">📊 Exporter</button>
+                            <button id="purgeResultsBtn" class="btn btn-danger">🗑️ Supprimer Tout</button>
+                        </div>
+                    </div>
+
+                    <!-- Counters -->
+                    <div class="counters-section">
+                        <div class="counter-card total">
+                            <div class="counter-label">Total</div>
+                            <div id="totalCounter" class="counter-value">0</div>
+                        </div>
+                        <div class="counter-card valid">
+                            <div class="counter-label">Validés</div>
+                            <div id="validCounter" class="counter-value">0</div>
+                        </div>
+                        <div class="counter-card invalid">
+                            <div class="counter-label">Invalides</div>
+                            <div id="invalidCounter" class="counter-value">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="resultats-filters">
                         <div class="filter-row">
                             <div class="filter-group">
-                                <label for="serviceFilter">Service:</label>
-                                <select id="serviceFilter" name="serviceFilter">
-                                    <option value="">All Services</option>
+                                <label for="validationFilter">Statut:</label>
+                                <select id="validationFilter">
+                                    <option value="">Tous</option>
+                                    <option value="true">Validés</option>
+                                    <option value="false">Invalides</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="serviceFilterRes">Service:</label>
+                                <select id="serviceFilterRes">
+                                    <option value="">Tous les services</option>
                                     <option value="aws">AWS</option>
                                     <option value="sendgrid">SendGrid</option>
-                                    <option value="smtp">SMTP</option>
+                                    <option value="sparkpost">SparkPost</option>
                                     <option value="twilio">Twilio</option>
+                                    <option value="brevo">Brevo</option>
+                                    <option value="mailgun">MailGun</option>
                                 </select>
                             </div>
                             <div class="filter-group">
-                                <label for="statusFilter">Status:</label>
-                                <select id="statusFilter" name="statusFilter">
-                                    <option value="">All</option>
-                                    <option value="verified">Verified Working</option>
-                                    <option value="unverified">Unverified</option>
+                                <label for="sortFilter">Trier par:</label>
+                                <select id="sortFilter">
+                                    <option value="date_desc">Date (récent)</option>
+                                    <option value="date_asc">Date (ancien)</option>
                                 </select>
-                            </div>
-                            <div class="filter-group">
-                                <input type="text" id="searchHits" name="search" placeholder="🔍 Search hits...">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Hits Grid -->
-                    <div id="hitsGrid" class="hits-grid">
-                        <!-- Hits will be populated here -->
+                    <!-- Results List -->
+                    <div id="resultsList" class="results-list">
+                        <!-- Results will be populated here -->
+                    </div>
+
+                    <!-- Details Drawer -->
+                    <div id="detailsDrawer" class="details-drawer">
+                        <div class="drawer-header">
+                            <h3>Détails du Hit</h3>
+                            <button id="closeDrawer" class="btn btn-secondary">✕</button>
+                        </div>
+                        <div id="drawerContent" class="drawer-content">
+                            <!-- Details will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Domaines Tab (French UI) -->
+            <div id="domaines" class="tab-content">
+                <div class="domaines-container">
+                    <div class="domaines-header">
+                        <h2>🌐 Gestion des Domaines</h2>
+                        <div class="domaines-actions">
+                            <button id="importDomainsBtn" class="btn btn-accent">📁 Importer (.txt)</button>
+                            <button id="refreshDomainsBtn" class="btn btn-secondary">🔄 Actualiser</button>
+                        </div>
+                    </div>
+
+                    <!-- File List -->
+                    <div id="domainsList" class="domains-list">
+                        <!-- Domain files will be populated here -->
+                    </div>
+
+                    <!-- Grabber Section -->
+                    <div class="grabber-section">
+                        <h3>🤖 Grabber de Domaines</h3>
+                        <div class="grabber-controls">
+                            <button id="startGrabberBtn" class="btn btn-primary">▶️ Démarrer</button>
+                            <button id="stopGrabberBtn" class="btn btn-danger" disabled>⏹️ Arrêter</button>
+                        </div>
+                        <div id="grabberStatus" class="grabber-status">
+                            <div class="status-item">
+                                <span class="status-label">État:</span>
+                                <span id="grabberState" class="status-value">Arrêté</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Domaines traités:</span>
+                                <span id="processedDomains" class="status-value">0</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Candidats générés:</span>
+                                <span id="generatedCandidates" class="status-value">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notes -->
+                    <div class="domains-notes">
+                        <h4>📝 Notes</h4>
+                        <ul>
+                            <li>Formats supportés: .txt avec un domaine par ligne</li>
+                            <li>Déduplication automatique des gros fichiers</li>
+                            <li>Le Grabber génère des variantes sûres des domaines existants</li>
+                        </ul>
                     </div>
                 </div>
             </div>
