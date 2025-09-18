@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTPx Cloud Scanner</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Login Modal -->
+        <div id="loginModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Login to HTTPx Scanner</h2>
+                    <div class="neon-accent"></div>
+                </div>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" name="username" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <span>Login</span>
+                        <div class="btn-glow"></div>
+                    </button>
+                </form>
+                <div id="loginError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Password Change Modal -->
+        <div id="passwordModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Change Password</h2>
+                    <p class="subtitle">First login requires password change</p>
+                    <div class="neon-accent"></div>
+                </div>
+                <form id="passwordForm">
+                    <div class="form-group">
+                        <label for="oldPassword">Current Password:</label>
+                        <input type="password" id="oldPassword" name="oldPassword" required autocomplete="current-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">New Password:</label>
+                        <input type="password" id="newPassword" name="newPassword" required autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirm Password:</label>
+                        <input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <span>Update Password</span>
+                        <div class="btn-glow"></div>
+                    </button>
+                </form>
+                <div id="passwordError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Main Application -->
+        <div id="mainApp" class="main-app" style="display: none;">
+            <!-- Header -->
+            <header class="app-header">
+                <div class="header-left">
+                    <h1 class="app-title">
+                        <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <circle cx="16" cy="16" r="14" stroke="url(#logoGradient)" stroke-width="2"/>
+                            <path d="M12 16L15 19L20 13" stroke="url(#logoGradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs>
+                                <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#7C3AED"/>
+                                    <stop offset="100%" style="stop-color:#22D3EE"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        HTTPx Scanner
+                    </h1>
+                    <div class="connection-status" id="connectionStatus">
+                        <div class="status-dot"></div>
+                        <span>Connected</span>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <span id="userInfo"></span>
+                        <button id="logoutBtn" class="btn btn-secondary">
+                            <span>Logout</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Navigation -->
+            <nav class="app-nav">
+                <div class="nav-tabs">
+                    <button class="nav-tab active" data-tab="dashboard">
+                        <div class="nav-icon">📊</div>
+                        <span>Dashboard</span>
+                    </button>
+                    <button class="nav-tab" data-tab="scan">
+                        <div class="nav-icon">🚀</div>
+                        <span>Scan</span>
+                    </button>
+                    <button class="nav-tab" data-tab="lists">
+                        <div class="nav-icon">📋</div>
+                        <span>Lists</span>
+                    </button>
+                    <button class="nav-tab" data-tab="ipgen">
+                        <div class="nav-icon">🌐</div>
+                        <span>IP Gen</span>
+                    </button>
+                    <button class="nav-tab" data-tab="hits">
+                        <div class="nav-icon">🎯</div>
+                        <span>Hits</span>
+                    </button>
+                    <button class="nav-tab" data-tab="settings">
+                        <div class="nav-icon">⚙️</div>
+                        <span>Settings</span>
+                    </button>
+                </div>
+            </nav>
+
+            <!-- Tab Content Container -->
+            <main class="tab-container">
+                <!-- Dashboard Tab -->
+                <div id="dashboard" class="tab-content active">
+                    <div class="dashboard-header">
+                        <h2>Mission Control</h2>
+                        <p>Real-time scanning operations dashboard</p>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h3>Active Scans</h3>
+                                <div class="stat-icon">⚡</div>
+                            </div>
+                            <div class="stat-value" id="activeScansCount">0</div>
+                            <div class="stat-change positive" id="activeScansChange">+0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h3>Total Hits</h3>
+                                <div class="stat-icon">🎯</div>
+                            </div>
+                            <div class="stat-value" id="totalHitsCount">0</div>
+                            <div class="stat-change positive" id="totalHitsChange">+0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h3>Verified</h3>
+                                <div class="stat-icon">✅</div>
+                            </div>
+                            <div class="stat-value" id="verifiedHitsCount">0</div>
+                            <div class="stat-change positive" id="verifiedHitsChange">+0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <h3>Throughput</h3>
+                                <div class="stat-icon">📈</div>
+                            </div>
+                            <div class="stat-value" id="throughputValue">0</div>
+                            <div class="stat-label">URLs/sec</div>
+                        </div>
+                    </div>
+
+                    <!-- Active Scans -->
+                    <div class="dashboard-section">
+                        <div class="section-header">
+                            <h3>Active Scans</h3>
+                            <button class="btn btn-primary" onclick="showTab('scan')">
+                                <span>New Scan</span>
+                            </button>
+                        </div>
+                        <div id="activeScansList" class="scans-grid">
+                            <div class="empty-state">
+                                <div class="empty-icon">🚀</div>
+                                <h4>No active scans</h4>
+                                <p>Start a new scan to see real-time progress here</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Service Breakdown -->
+                    <div class="dashboard-section">
+                        <div class="section-header">
+                            <h3>Service Breakdown</h3>
+                        </div>
+                        <div id="serviceBreakdown" class="service-breakdown">
+                            <div class="service-item">
+                                <span class="service-name">AWS</span>
+                                <span class="service-count">0</span>
+                            </div>
+                            <div class="service-item">
+                                <span class="service-name">SendGrid</span>
+                                <span class="service-count">0</span>
+                            </div>
+                            <div class="service-item">
+                                <span class="service-name">SMTP</span>
+                                <span class="service-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scan Tab -->
+                <div id="scan" class="tab-content">
+                    <div class="page-header">
+                        <h2>Launch Scan</h2>
+                        <p>Configure and launch high-concurrency scanning missions</p>
+                    </div>
+
+                    <div class="scan-container">
+                        <!-- Enhanced Scan Form -->
+                        <div class="scan-form-container">
+                            <form id="scanForm" class="scan-form">
+                                <div class="form-grid">
+                                    <div class="form-group span-2">
+                                        <label for="scanName">Mission Name</label>
+                                        <input type="text" id="scanName" name="scanName" placeholder="Enter mission codename" required>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="targets">Targets (URLs, one per line)</label>
+                                        <textarea id="targets" name="targets" rows="5" placeholder="https://example.com&#10;https://another-site.com" required></textarea>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="listSelect">Or Select Stored List</label>
+                                        <select id="listSelect" name="listSelect">
+                                            <option value="">Select stored list...</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="concurrency">Concurrency</label>
+                                        <div class="slider-container">
+                                            <input type="range" id="concurrency" name="concurrency" 
+                                                   min="10" max="100000" value="1000" step="100" 
+                                                   class="concurrency-slider">
+                                            <div class="slider-labels">
+                                                <span>10</span>
+                                                <span id="concurrencyValue">1,000</span>
+                                                <span>100k</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="timeout">Timeout (seconds)</label>
+                                        <input type="number" id="timeout" name="timeout" value="10" min="1" max="300">
+                                    </div>
+
+                                    <div class="form-group span-2">
+                                        <label>Exploit Modules</label>
+                                        <div class="checkbox-grid">
+                                            <label class="checkbox-item">
+                                                <input type="checkbox" name="modules" value="aws" checked>
+                                                <span class="checkmark"></span>
+                                                AWS
+                                            </label>
+                                            <label class="checkbox-item">
+                                                <input type="checkbox" name="modules" value="sendgrid" checked>
+                                                <span class="checkmark"></span>
+                                                SendGrid
+                                            </label>
+                                            <label class="checkbox-item">
+                                                <input type="checkbox" name="modules" value="smtp" checked>
+                                                <span class="checkmark"></span>
+                                                SMTP
+                                            </label>
+                                            <label class="checkbox-item">
+                                                <input type="checkbox" name="modules" value="docker">
+                                                <span class="checkmark"></span>
+                                                Docker
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary btn-large">
+                                        <span>Launch Scan</span>
+                                        <div class="btn-glow"></div>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Live Scan Monitoring -->
+                        <div id="scanMonitor" class="scan-monitor" style="display: none;">
+                            <div class="monitor-header">
+                                <h3 id="activeScanName">Scan in Progress</h3>
+                                <div class="scan-controls">
+                                    <button id="pauseBtn" class="btn btn-warning">Pause</button>
+                                    <button id="resumeBtn" class="btn btn-success" style="display: none;">Resume</button>
+                                    <button id="stopBtn" class="btn btn-danger">Stop</button>
+                                </div>
+                            </div>
+
+                            <!-- Progress Stats -->
+                            <div class="progress-section">
+                                <div class="progress-card">
+                                    <div class="progress-header">
+                                        <span>Progress</span>
+                                        <span id="progressPercent">0%</span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progressFill"></div>
+                                    </div>
+                                    <div class="progress-info">
+                                        <span id="processedUrls">0</span> / <span id="totalUrls">0</span> URLs
+                                    </div>
+                                </div>
+
+                                <div class="stats-row">
+                                    <div class="stat-item">
+                                        <div class="stat-label">Hits Found</div>
+                                        <div class="stat-value" id="hitsFound">0</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">URLs/sec</div>
+                                        <div class="stat-value" id="urlsPerSec">0</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">ETA</div>
+                                        <div class="stat-value" id="eta">--</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">Errors</div>
+                                        <div class="stat-value" id="errorsCount">0</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Live Logs -->
+                            <div class="logs-section">
+                                <div class="logs-header">
+                                    <h4>Live Logs</h4>
+                                    <div class="logs-controls">
+                                        <button id="clearLogs" class="btn btn-small">Clear</button>
+                                        <button id="pauseLogs" class="btn btn-small">Pause</button>
+                                    </div>
+                                </div>
+                                <div class="logs-container" id="liveLogsContainer">
+                                    <div class="log-line">
+                                        <span class="log-time">--:--:--</span>
+                                        <span class="log-level info">INFO</span>
+                                        <span class="log-message">Waiting for scan to start...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lists Tab -->
+                <div id="lists" class="tab-content">
+                    <div class="page-header">
+                        <h2>Lists Management</h2>
+                        <p>Upload and manage wordlists, target lists, and IP ranges</p>
+                    </div>
+
+                    <div class="lists-container">
+                        <div class="lists-toolbar">
+                            <div class="toolbar-left">
+                                <select id="listTypeFilter" class="filter-select">
+                                    <option value="">All Types</option>
+                                    <option value="wordlist">Wordlists</option>
+                                    <option value="targets">Target Lists</option>
+                                    <option value="ips">IP Lists</option>
+                                </select>
+                            </div>
+                            <div class="toolbar-right">
+                                <button id="uploadListBtn" class="btn btn-primary">
+                                    <span>Upload List</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="lists-grid" id="listsGrid">
+                            <div class="empty-state">
+                                <div class="empty-icon">📁</div>
+                                <h4>No lists uploaded yet</h4>
+                                <p>Upload wordlists, target lists, or IP ranges to get started</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IP Generator Tab -->
+                <div id="ipgen" class="tab-content">
+                    <div class="page-header">
+                        <h2>IP Generator</h2>
+                        <p>Generate unique IP addresses from CIDR ranges</p>
+                    </div>
+
+                    <div class="ipgen-container">
+                        <div class="empty-state">
+                            <div class="empty-icon">🌐</div>
+                            <h4>IP Generator Coming Soon</h4>
+                            <p>Generate unique IP lists from CIDR ranges</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hits Tab -->
+                <div id="hits" class="tab-content">
+                    <div class="page-header">
+                        <h2>Findings & Hits</h2>
+                        <p>Browse and analyze discovered credentials and secrets</p>
+                    </div>
+
+                    <div class="hits-container">
+                        <div class="hits-toolbar">
+                            <div class="toolbar-left">
+                                <select id="serviceFilter" class="filter-select">
+                                    <option value="">All Services</option>
+                                    <option value="aws">AWS</option>
+                                    <option value="sendgrid">SendGrid</option>
+                                    <option value="smtp">SMTP</option>
+                                    <option value="twilio">Twilio</option>
+                                </select>
+                                <input type="text" id="hitsSearch" placeholder="Search findings..." class="search-input">
+                            </div>
+                            <div class="toolbar-right">
+                                <button id="exportHits" class="btn btn-secondary">Export</button>
+                                <button id="refreshHits" class="btn btn-primary">Refresh</button>
+                            </div>
+                        </div>
+
+                        <div class="hits-table-container" id="hitsTableContainer">
+                            <div class="empty-state">
+                                <div class="empty-icon">🔍</div>
+                                <h4>No findings yet</h4>
+                                <p>Start a scan to discover credentials and secrets</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="settings" class="tab-content">
+                    <div class="page-header">
+                        <h2>Settings</h2>
+                        <p>Configure notifications, scan defaults, and system settings</p>
+                    </div>
+
+                    <div class="settings-container">
+                        <div class="settings-grid">
+                            <div class="setting-card">
+                                <h3>🔔 Notifications</h3>
+                                <p>Configure alert channels</p>
+                                <div class="setting-status">Coming Soon</div>
+                            </div>
+                            <div class="setting-card">
+                                <h3>🔧 Scan Defaults</h3>
+                                <p>Default scan parameters</p>
+                                <div class="setting-status">Coming Soon</div>
+                            </div>
+                            <div class="setting-card">
+                                <h3>🔒 Security</h3>
+                                <p>Security and privacy settings</p>
+                                <div class="setting-status">Coming Soon</div>
+                            </div>
+                            <div class="setting-card">
+                                <h3>⚙️ System</h3>
+                                <p>System configuration</p>
+                                <div class="setting-status">
+                                    <div class="status-item">
+                                        <span>Database:</span>
+                                        <div class="status-dot connected"></div>
+                                    </div>
+                                    <div class="status-item">
+                                        <span>Redis:</span>
+                                        <div class="status-dot disconnected"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Upload Modal -->
+        <div id="uploadModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Upload List</h3>
+                    <button class="modal-close" onclick="closeUploadModal()">&times;</button>
+                </div>
+                <form id="uploadForm">
+                    <div class="form-group">
+                        <label for="uploadName">List Name</label>
+                        <input type="text" id="uploadName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadType">List Type</label>
+                        <select id="uploadType" required>
+                            <option value="wordlist">Wordlist</option>
+                            <option value="targets">Target List</option>
+                            <option value="ips">IP List</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadDescription">Description</label>
+                        <textarea id="uploadDescription" placeholder="Optional description..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadFile">File</label>
+                        <input type="file" id="uploadFile" accept=".txt,.list" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

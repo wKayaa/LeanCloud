@@ -1,71 +1,104 @@
+/**
+ * HTTPx Cloud Scanner - Futuristic Frontend
+ * Modern JavaScript with enhanced features
+ */
+
 // Global state
 let authToken = null;
 let currentUser = null;
 let websocket = null;
 let currentScanId = null;
+let dashboardStats = {};
+let isLogsPaused = false;
 
 // DOM elements
 const loginModal = document.getElementById('loginModal');
 const passwordModal = document.getElementById('passwordModal');
 const mainApp = document.getElementById('mainApp');
-const logsModal = document.getElementById('logsModal');
-const findingsModal = document.getElementById('findingsModal');
+const uploadModal = document.getElementById('uploadModal');
+const connectionStatus = document.getElementById('connectionStatus');
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 HTTPx Cloud Scanner initializing...');
     checkAuthentication();
     setupEventListeners();
+    setupConcurrencySlider();
 });
 
 // Authentication functions
 function checkAuthentication() {
-    const stored = localStorage.getItem('httpx_auth');
-    if (stored) {
-        const auth = JSON.parse(stored);
-        authToken = auth.token;
-        currentUser = auth.user;
-        
-        // Verify token is still valid
-        fetch('/api/v1/health', {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
-        }).then(response => {
-            if (response.ok) {
-                showMainApp();
-            } else {
-                showLogin();
-            }
-        }).catch(() => showLogin());
+    authToken = localStorage.getItem('authToken');
+    if (authToken) {
+        validateToken();
     } else {
         showLogin();
     }
 }
 
 function showLogin() {
-    loginModal.style.display = 'block';
-    mainApp.style.display = 'none';
-    passwordModal.style.display = 'none';
+    if (loginModal) {
+        loginModal.classList.add('show');
+    }
+    if (mainApp) {
+        mainApp.style.display = 'none';
+    }
 }
 
 function showPasswordChange() {
-    loginModal.style.display = 'none';
-    passwordModal.style.display = 'block';
-    mainApp.style.display = 'none';
+    if (loginModal) {
+        loginModal.classList.remove('show');
+    }
+    if (passwordModal) {
+        passwordModal.classList.add('show');
+    }
 }
 
 function showMainApp() {
-    loginModal.style.display = 'none';
-    passwordModal.style.display = 'none';
-    mainApp.style.display = 'block';
+    if (loginModal) {
+        loginModal.classList.remove('show');
+    }
+    if (passwordModal) {
+        passwordModal.classList.remove('show');
+    }
+    if (mainApp) {
+        mainApp.style.display = 'block';
+    }
     
-    document.getElementById('userInfo').textContent = `Welcome, ${currentUser.username}`;
+    // Load initial data
     loadDashboard();
-    connectWebSocket();
+    loadLists();
+    setupWebSocket();
+    
+    // Update user info
+    if (currentUser) {
+        const userInfo = document.getElementById('userInfo');
+        if (userInfo) {
+            userInfo.textContent = currentUser.username || 'User';
+        }
+    }
+}
+
+async function validateToken() {
+    try {
+        const response = await fetch('/api/v1/healthz', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            showMainApp();
+        } else {
+            localStorage.removeItem('authToken');
+            showLogin();
+        }
+    } catch (error) {
+        console.error('Token validation failed:', error);
+        showLogin();
+    }
 }
 
 function logout() {
-    localStorage.removeItem('httpx_auth');
+    localStorage.removeItem('authToken');
     authToken = null;
     currentUser = null;
     if (websocket) {
@@ -78,160 +111,225 @@ function logout() {
 // Event listeners
 function setupEventListeners() {
     // Login form
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const username = formData.get('username');
-        const password = formData.get('password');
-        
-        try {
-            const response = await fetch('/api/v1/auth/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            });
-            
-            const data = await response.json();
-            
-            if (response.ok) {
-                authToken = data.access_token;
-                currentUser = data.user;
-                localStorage.setItem('httpx_auth', JSON.stringify({
-                    token: authToken,
-                    user: currentUser
-                }));
-                
-                if (data.first_run) {
-                    showPasswordChange();
-                } else {
-                    showMainApp();
-                }
-            } else {
-                showError('loginError', data.detail || 'Login failed');
-            }
-        } catch (error) {
-            showError('loginError', 'Network error');
-        }
-    });
-    
-    // Password change form
-    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const oldPassword = formData.get('oldPassword');
-        const newPassword = formData.get('newPassword');
-        const confirmPassword = formData.get('confirmPassword');
-        
-        if (newPassword !== confirmPassword) {
-            showError('passwordError', 'Passwords do not match');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/v1/auth/change-password', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authToken}`
-                },
-                body: JSON.stringify({
-                    old_password: oldPassword,
-                    new_password: newPassword
-                })
-            });
-            
-            if (response.ok) {
-                showMainApp();
-            } else {
-                const data = await response.json();
-                showError('passwordError', data.detail || 'Password change failed');
-            }
-        } catch (error) {
-            showError('passwordError', 'Network error');
-        }
-    });
-    
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+    }
+
+    // Password form
+    const passwordForm = document.getElementById('passwordForm');
+    if (passwordForm) {
+        passwordForm.addEventListener('submit', handlePasswordChange);
+    }
+
     // Logout button
-    document.getElementById('logoutBtn').addEventListener('click', logout);
-    
-    // Navigation
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const tab = e.target.getAttribute('data-tab');
-            switchTab(tab);
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', logout);
+    }
+
+    // Tab navigation
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            const tabName = e.currentTarget.dataset.tab;
+            showTab(tabName);
         });
     });
-    
+
     // Scan form
-    document.getElementById('scanForm').addEventListener('submit', handleScanSubmit);
+    const scanForm = document.getElementById('scanForm');
+    if (scanForm) {
+        scanForm.addEventListener('submit', handleScanSubmit);
+    }
+
+    // Upload list button
+    const uploadListBtn = document.getElementById('uploadListBtn');
+    if (uploadListBtn) {
+        uploadListBtn.addEventListener('click', showUploadModal);
+    }
+
+    // Upload form
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', handleUploadSubmit);
+    }
+
+    // Scan controls
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const stopBtn = document.getElementById('stopBtn');
     
-    // File uploads
-    document.getElementById('uploadTargetsBtn').addEventListener('click', () => {
-        document.getElementById('targetsFile').click();
-    });
+    if (pauseBtn) pauseBtn.addEventListener('click', () => controlScan('pause'));
+    if (resumeBtn) resumeBtn.addEventListener('click', () => controlScan('resume'));
+    if (stopBtn) stopBtn.addEventListener('click', () => controlScan('stop'));
+
+    // Clear logs
+    const clearLogs = document.getElementById('clearLogs');
+    if (clearLogs) {
+        clearLogs.addEventListener('click', () => {
+            const container = document.getElementById('liveLogsContainer');
+            if (container) {
+                container.innerHTML = '<div class="log-line"><span class="log-time">--:--:--</span><span class="log-level info">INFO</span><span class="log-message">Logs cleared</span></div>';
+            }
+        });
+    }
+
+    // Pause logs
+    const pauseLogs = document.getElementById('pauseLogs');
+    if (pauseLogs) {
+        pauseLogs.addEventListener('click', () => {
+            isLogsPaused = !isLogsPaused;
+            pauseLogs.textContent = isLogsPaused ? 'Resume' : 'Pause';
+        });
+    }
+}
+
+// Login handling
+async function handleLogin(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const loginError = document.getElementById('loginError');
     
-    document.getElementById('targetsFile').addEventListener('change', handleTargetsUpload);
+    try {
+        const response = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: formData.get('username'),
+                password: formData.get('password')
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            authToken = data.access_token;
+            currentUser = data.user;
+            localStorage.setItem('authToken', authToken);
+            
+            if (data.requires_password_change) {
+                showPasswordChange();
+            } else {
+                showMainApp();
+            }
+        } else {
+            if (loginError) {
+                loginError.textContent = data.detail || 'Login failed';
+            }
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        if (loginError) {
+            loginError.textContent = 'Network error. Please try again.';
+        }
+    }
+}
+
+// Password change handling
+async function handlePasswordChange(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const passwordError = document.getElementById('passwordError');
     
-    document.getElementById('uploadWordlistBtn').addEventListener('click', () => {
-        document.getElementById('wordlistFile').click();
-    });
+    const newPassword = formData.get('newPassword');
+    const confirmPassword = formData.get('confirmPassword');
     
-    document.getElementById('wordlistFile').addEventListener('change', handleWordlistUpload);
+    if (newPassword !== confirmPassword) {
+        if (passwordError) {
+            passwordError.textContent = 'Passwords do not match';
+        }
+        return;
+    }
     
-    // Refresh results
-    document.getElementById('refreshResults').addEventListener('click', loadResults);
+    try {
+        const response = await fetch('/api/v1/auth/change-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                old_password: formData.get('oldPassword'),
+                new_password: newPassword
+            })
+        });
+        
+        if (response.ok) {
+            showMainApp();
+        } else {
+            const data = await response.json();
+            if (passwordError) {
+                passwordError.textContent = data.detail || 'Password change failed';
+            }
+        }
+    } catch (error) {
+        console.error('Password change error:', error);
+        if (passwordError) {
+            passwordError.textContent = 'Network error. Please try again.';
+        }
+    }
 }
 
 // Tab switching
-function switchTab(tabName) {
-    // Update nav buttons
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.remove('active');
+function showTab(tabName) {
+    // Update nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.remove('active');
     });
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
+    if (activeTab) {
+        activeTab.classList.add('active');
+    }
     
     // Update tab content
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
-    document.getElementById(tabName).classList.add('active');
+    const activeContent = document.getElementById(tabName);
+    if (activeContent) {
+        activeContent.classList.add('active');
+    }
     
     // Load tab-specific data
-    switch(tabName) {
+    switch (tabName) {
         case 'dashboard':
             loadDashboard();
             break;
-        case 'results':
-            loadResults();
+        case 'lists':
+            loadLists();
             break;
-        case 'config':
-            loadConfig();
+        case 'hits':
+            loadHits();
             break;
+        case 'settings':
+            loadSettings();
+            break;
+    }
+}
+
+// Concurrency slider
+function setupConcurrencySlider() {
+    const slider = document.getElementById('concurrency');
+    const valueDisplay = document.getElementById('concurrencyValue');
+    
+    if (slider && valueDisplay) {
+        slider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            valueDisplay.textContent = formatNumber(value);
+        });
     }
 }
 
 // Dashboard functions
 async function loadDashboard() {
     try {
-        const [statsResponse, scansResponse] = await Promise.all([
-            fetch('/api/v1/stats', {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            }),
-            fetch('/api/v1/scans', {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            })
-        ]);
+        const response = await fetch('/api/v1/stats/dashboard', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
         
-        if (statsResponse.ok) {
-            const stats = await statsResponse.json();
+        if (response.ok) {
+            const stats = await response.json();
             updateDashboardStats(stats);
-        }
-        
-        if (scansResponse.ok) {
-            const scans = await scansResponse.json();
-            updateRecentScans(scans);
         }
     } catch (error) {
         console.error('Error loading dashboard:', error);
@@ -239,53 +337,58 @@ async function loadDashboard() {
 }
 
 function updateDashboardStats(stats) {
-    document.getElementById('totalScans').textContent = stats.total_scans;
-    document.getElementById('runningScans').textContent = stats.running_scans;
-    document.getElementById('totalFindings').textContent = stats.total_findings;
+    // Update stat cards
+    updateElement('activeScansCount', stats.active_scans || 0);
+    updateElement('totalHitsCount', stats.total_hits || 0);
+    updateElement('verifiedHitsCount', stats.verified_hits || 0);
     
-    const successRate = stats.total_scans > 0 
-        ? Math.round((stats.completed_scans / stats.total_scans) * 100)
-        : 0;
-    document.getElementById('successRate').textContent = `${successRate}%`;
+    // Update service breakdown
+    updateServiceBreakdown(stats.service_breakdown || {});
 }
 
-function updateRecentScans(scans) {
-    const container = document.getElementById('recentScansList');
-    const recentScans = scans.slice(0, 5); // Show only recent 5
+function updateServiceBreakdown(services) {
+    const container = document.getElementById('serviceBreakdown');
+    if (!container) return;
     
-    container.innerHTML = recentScans.map(scan => `
-        <div class="scan-item">
-            <div class="scan-info">
-                <h4>Scan ${scan.id.substring(0, 8)}</h4>
-                <p>${scan.targets.length} targets • ${scan.findings_count} findings</p>
-            </div>
-            <div class="scan-status status-${scan.status}">
-                ${scan.status}
-            </div>
-            <div class="scan-actions">
-                ${scan.status === 'running' ? 
-                    `<button class="btn btn-warning" onclick="viewLogs('${scan.id}')">Logs</button>` :
-                    `<button class="btn btn-secondary" onclick="viewFindings('${scan.id}')">View</button>`
-                }
-            </div>
-        </div>
-    `).join('');
+    container.innerHTML = '';
+    
+    Object.entries(services).forEach(([service, count]) => {
+        const item = document.createElement('div');
+        item.className = 'service-item';
+        item.innerHTML = `
+            <span class="service-name">${service}</span>
+            <span class="service-count">${count}</span>
+        `;
+        container.appendChild(item);
+    });
 }
 
 // Scan functions
 async function handleScanSubmit(e) {
     e.preventDefault();
-    
     const formData = new FormData(e.target);
-    const targets = formData.get('targets').split('\n').filter(t => t.trim());
+    
+    // Get selected modules
+    const modules = Array.from(document.querySelectorAll('input[name="modules"]:checked'))
+        .map(cb => cb.value);
+    
+    // Get targets
+    let targets = formData.get('targets').split('\n').filter(t => t.trim());
+    
+    // If no targets but list selected, we'll use the list
+    const listId = formData.get('listSelect');
+    if (!targets.length && !listId) {
+        showError('Please provide targets or select a list');
+        return;
+    }
     
     const scanRequest = {
         targets: targets,
-        wordlist: formData.get('wordlist'),
+        list_id: listId || null,
+        modules: modules,
         concurrency: parseInt(formData.get('concurrency')),
-        rate_limit: parseInt(formData.get('rateLimit')),
         timeout: parseInt(formData.get('timeout')),
-        follow_redirects: formData.has('followRedirects')
+        notes: formData.get('scanName')
     };
     
     try {
@@ -300,217 +403,237 @@ async function handleScanSubmit(e) {
         
         if (response.ok) {
             const result = await response.json();
-            alert(`Scan started with ID: ${result.scan_id}`);
-            e.target.reset();
-            switchTab('results');
+            currentScanId = result.scan_id;
+            
+            // Show scan monitor
+            const scanConfig = document.getElementById('scanConfig');
+            const scanMonitor = document.getElementById('scanMonitor');
+            const activeScanName = document.getElementById('activeScanName');
+            
+            if (scanConfig) scanConfig.style.display = 'none';
+            if (scanMonitor) scanMonitor.style.display = 'block';
+            if (activeScanName) activeScanName.textContent = formData.get('scanName') || 'Unnamed Scan';
+            
+            // Subscribe to scan updates
+            subscribeToScan(currentScanId);
         } else {
             const error = await response.json();
-            alert(`Error: ${error.detail}`);
+            showError(error.detail || 'Failed to start scan');
         }
     } catch (error) {
-        alert('Network error');
+        console.error('Scan submission error:', error);
+        showError('Network error. Please try again.');
     }
 }
 
-async function handleTargetsUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const formData = new FormData();
-    formData.append('file', file);
+async function controlScan(action) {
+    if (!currentScanId) return;
     
     try {
-        const response = await fetch('/api/v1/upload/targets', {
+        const response = await fetch(`/api/v1/scans/${currentScanId}/control?action=${action}`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: formData
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
         if (response.ok) {
             const result = await response.json();
-            document.getElementById('targets').value = result.targets.join('\n');
-            alert(`Loaded ${result.count} targets`);
+            console.log(`Scan ${action}:`, result);
+            
+            // Update UI based on action
+            const pauseBtn = document.getElementById('pauseBtn');
+            const resumeBtn = document.getElementById('resumeBtn');
+            const scanConfig = document.getElementById('scanConfig');
+            const scanMonitor = document.getElementById('scanMonitor');
+            
+            if (action === 'pause') {
+                if (pauseBtn) pauseBtn.style.display = 'none';
+                if (resumeBtn) resumeBtn.style.display = 'inline-flex';
+            } else if (action === 'resume') {
+                if (pauseBtn) pauseBtn.style.display = 'inline-flex';
+                if (resumeBtn) resumeBtn.style.display = 'none';
+            } else if (action === 'stop') {
+                // Reset to scan config
+                if (scanConfig) scanConfig.style.display = 'block';
+                if (scanMonitor) scanMonitor.style.display = 'none';
+                currentScanId = null;
+            }
         }
     } catch (error) {
-        alert('Upload failed');
+        console.error(`Error ${action} scan:`, error);
     }
 }
 
-async function handleWordlistUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+// Lists functions
+async function loadLists() {
+    try {
+        const response = await fetch('/api/v1/lists', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            updateListsGrid(data.lists);
+            updateListSelect(data.lists);
+        }
+    } catch (error) {
+        console.error('Error loading lists:', error);
+    }
+}
+
+function updateListsGrid(lists) {
+    const grid = document.getElementById('listsGrid');
+    if (!grid) return;
     
+    if (lists.length === 0) {
+        grid.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📁</div>
+                <h4>No lists uploaded yet</h4>
+                <p>Upload wordlists, target lists, or IP ranges to get started</p>
+            </div>
+        `;
+        return;
+    }
+    
+    grid.innerHTML = lists.map(list => `
+        <div class="list-card">
+            <div class="list-header">
+                <h4>${list.name}</h4>
+                <span class="list-type">${list.list_type}</span>
+            </div>
+            <div class="list-info">
+                <div class="list-stat">
+                    <span class="stat-label">Items:</span>
+                    <span class="stat-value">${formatNumber(list.items_count)}</span>
+                </div>
+                <div class="list-stat">
+                    <span class="stat-label">Size:</span>
+                    <span class="stat-value">${formatBytes(list.file_size)}</span>
+                </div>
+            </div>
+            <div class="list-actions">
+                <button class="btn btn-small btn-secondary" onclick="downloadList('${list.id}')">Download</button>
+                <button class="btn btn-small btn-danger" onclick="deleteList('${list.id}')">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateListSelect(lists) {
+    const select = document.getElementById('listSelect');
+    if (!select) return;
+    
+    // Keep the default option
+    const defaultOption = select.querySelector('option[value=""]');
+    select.innerHTML = '';
+    if (defaultOption) {
+        select.appendChild(defaultOption);
+    }
+    
+    lists.forEach(list => {
+        const option = document.createElement('option');
+        option.value = list.id;
+        option.textContent = `${list.name} (${list.list_type}, ${formatNumber(list.items_count)} items)`;
+        select.appendChild(option);
+    });
+}
+
+function showUploadModal() {
+    if (uploadModal) {
+        uploadModal.classList.add('show');
+    }
+}
+
+function closeUploadModal() {
+    if (uploadModal) {
+        uploadModal.classList.remove('show');
+    }
+}
+
+async function handleUploadSubmit(e) {
+    e.preventDefault();
     const formData = new FormData();
+    
+    const name = document.getElementById('uploadName').value;
+    const type = document.getElementById('uploadType').value;
+    const description = document.getElementById('uploadDescription').value;
+    const file = document.getElementById('uploadFile').files[0];
+    
+    if (!file) {
+        showError('Please select a file');
+        return;
+    }
+    
     formData.append('file', file);
     
     try {
-        const response = await fetch('/api/v1/upload/wordlist', {
+        const response = await fetch(`/api/v1/lists/upload?name=${encodeURIComponent(name)}&list_type=${type}&description=${encodeURIComponent(description)}`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            },
+            headers: { 'Authorization': `Bearer ${authToken}` },
             body: formData
         });
         
         if (response.ok) {
-            const result = await response.json();
-            // Add to wordlist dropdown
-            const select = document.getElementById('wordlist');
-            const option = new Option(result.filename, result.filename);
-            select.add(option);
-            select.value = result.filename;
-            alert(`Uploaded wordlist with ${result.paths_count} paths`);
+            closeUploadModal();
+            loadLists(); // Reload lists
+            showSuccess('List uploaded successfully');
+        } else {
+            const error = await response.json();
+            showError(error.detail || 'Upload failed');
         }
     } catch (error) {
-        alert('Upload failed');
+        console.error('Upload error:', error);
+        showError('Network error. Please try again.');
     }
 }
 
-// Results functions
-async function loadResults() {
+// Hits functions
+async function loadHits() {
     try {
         const response = await fetch('/api/v1/scans', {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
         if (response.ok) {
-            const scans = await response.json();
-            displayScans(scans);
+            const data = await response.json();
+            // For now, just show empty state
+            // TODO: Implement hits table with virtualization
         }
     } catch (error) {
-        console.error('Error loading results:', error);
+        console.error('Error loading hits:', error);
     }
 }
 
-function displayScans(scans) {
-    const container = document.getElementById('scansList');
-    
-    container.innerHTML = scans.map(scan => `
-        <div class="scan-item">
-            <div class="scan-info">
-                <h4>Scan ${scan.id.substring(0, 8)}</h4>
-                <p>${scan.targets.join(', ')}</p>
-                <p>${scan.processed_urls}/${scan.total_urls} URLs • ${scan.findings_count} findings</p>
-                <p>Created: ${new Date(scan.created_at).toLocaleString()}</p>
-                ${scan.status === 'running' ? `
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${scan.total_urls > 0 ? (scan.processed_urls/scan.total_urls)*100 : 0}%"></div>
-                    </div>
-                ` : ''}
-            </div>
-            <div class="scan-status status-${scan.status}">
-                ${scan.status}
-            </div>
-            <div class="scan-actions">
-                ${scan.status === 'running' ? `
-                    <button class="btn btn-warning" onclick="viewLogs('${scan.id}')">Logs</button>
-                    <button class="btn btn-danger" onclick="stopScan('${scan.id}')">Stop</button>
-                ` : `
-                    <button class="btn btn-secondary" onclick="viewFindings('${scan.id}')">Findings</button>
-                `}
-            </div>
-        </div>
-    `).join('');
-}
-
-// Modal functions
-function viewLogs(scanId) {
-    currentScanId = scanId;
-    logsModal.style.display = 'block';
-    
-    const container = document.getElementById('logsContainer');
-    container.innerHTML = 'Loading logs...\n';
-    
-    // Subscribe to logs via WebSocket
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({
-            type: 'subscribe_scan',
-            scan_id: scanId
-        }));
-    }
-}
-
-function closeLogs() {
-    logsModal.style.display = 'none';
-    currentScanId = null;
-}
-
-async function viewFindings(scanId) {
-    currentScanId = scanId;
-    findingsModal.style.display = 'block';
-    
+// Settings functions
+async function loadSettings() {
     try {
-        const response = await fetch(`/api/v1/scans/${scanId}/findings`, {
+        const response = await fetch('/api/v1/settings', {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
         if (response.ok) {
-            const findings = await response.json();
-            displayFindings(findings);
+            const settings = await response.json();
+            // TODO: Update settings UI
         }
     } catch (error) {
-        console.error('Error loading findings:', error);
-    }
-}
-
-function displayFindings(findings) {
-    const container = document.getElementById('findingsContainer');
-    
-    if (findings.length === 0) {
-        container.innerHTML = '<p>No findings for this scan.</p>';
-        return;
-    }
-    
-    container.innerHTML = findings.map(finding => `
-        <div class="finding-item">
-            <div class="finding-info">
-                <h5>${finding.provider}</h5>
-                <div class="finding-url">${finding.url}</div>
-                <div class="finding-evidence">${finding.evidence_masked}</div>
-                <div class="finding-meta">
-                    First seen: ${new Date(finding.first_seen).toLocaleString()}
-                </div>
-            </div>
-            ${currentUser.role === 'admin' ? `
-                <button class="btn btn-secondary" onclick="viewFullEvidence('${finding.id}')">
-                    Full Evidence
-                </button>
-            ` : ''}
-        </div>
-    `).join('');
-}
-
-function closeFindings() {
-    findingsModal.style.display = 'none';
-    currentScanId = null;
-}
-
-async function stopScan(scanId) {
-    if (!confirm('Are you sure you want to stop this scan?')) return;
-    
-    try {
-        const response = await fetch(`/api/v1/scans/${scanId}/stop`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${authToken}` }
-        });
-        
-        if (response.ok) {
-            loadResults();
-        }
-    } catch (error) {
-        alert('Error stopping scan');
+        console.error('Error loading settings:', error);
     }
 }
 
 // WebSocket functions
-function connectWebSocket() {
-    const wsUrl = `ws://${window.location.host}/ws?token=${authToken}`;
+function setupWebSocket() {
+    if (websocket) {
+        websocket.close();
+    }
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/dashboard?token=${authToken}`;
+    
     websocket = new WebSocket(wsUrl);
     
     websocket.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('🔗 WebSocket connected');
+        updateConnectionStatus(true);
     };
     
     websocket.onmessage = (event) => {
@@ -519,76 +642,267 @@ function connectWebSocket() {
     };
     
     websocket.onclose = () => {
-        console.log('WebSocket disconnected');
+        console.log('❌ WebSocket disconnected');
+        updateConnectionStatus(false);
+        
         // Reconnect after 5 seconds
-        setTimeout(connectWebSocket, 5000);
+        setTimeout(setupWebSocket, 5000);
     };
+    
+    websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        updateConnectionStatus(false);
+    };
+}
+
+function subscribeToScan(scanId) {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+            type: 'subscribe',
+            channel: `scan:${scanId}`
+        }));
+    }
 }
 
 function handleWebSocketMessage(message) {
     switch (message.type) {
+        case 'dashboard_stats':
+            updateDashboardStats(message.data);
+            break;
+        case 'scan_progress':
+            updateScanProgress(message.data);
+            break;
         case 'scan_log':
-            if (currentScanId === message.scan_id) {
-                const container = document.getElementById('logsContainer');
-                container.innerHTML += `[${new Date(message.timestamp).toLocaleTimeString()}] ${message.message}\n`;
-                container.scrollTop = container.scrollHeight;
+            if (!isLogsPaused) {
+                addLogLine(message.data);
             }
             break;
-            
-        case 'scan_progress':
-            // Update progress bars if visible
-            updateProgress(message.scan_id, message.processed_urls, message.total_urls);
-            break;
-            
-        case 'new_finding':
-            // Could show notification or update counts
+        case 'scan_hit':
+            showNotification('New hit found!', 'success');
             break;
     }
 }
 
-function updateProgress(scanId, processed, total) {
-    const progressBars = document.querySelectorAll('.progress-fill');
-    progressBars.forEach(bar => {
-        const scanItem = bar.closest('.scan-item');
-        if (scanItem && scanItem.innerHTML.includes(scanId.substring(0, 8))) {
-            const percent = total > 0 ? (processed / total) * 100 : 0;
-            bar.style.width = `${percent}%`;
+function updateConnectionStatus(connected) {
+    if (!connectionStatus) return;
+    
+    const statusDot = connectionStatus.querySelector('.status-dot');
+    const statusText = connectionStatus.querySelector('span');
+    
+    if (connected) {
+        if (statusDot) {
+            statusDot.classList.remove('disconnected');
+            statusDot.classList.add('connected');
         }
-    });
+        if (statusText) {
+            statusText.textContent = 'Connected';
+        }
+    } else {
+        if (statusDot) {
+            statusDot.classList.remove('connected');
+            statusDot.classList.add('disconnected');
+        }
+        if (statusText) {
+            statusText.textContent = 'Connecting...';
+        }
+    }
+}
+
+function updateScanProgress(data) {
+    // Update progress bar
+    const progressPercent = document.getElementById('progressPercent');
+    const progressFill = document.getElementById('progressFill');
+    const processedUrls = document.getElementById('processedUrls');
+    const totalUrls = document.getElementById('totalUrls');
+    
+    if (progressPercent) progressPercent.textContent = `${data.progress_percent}%`;
+    if (progressFill) progressFill.style.width = `${data.progress_percent}%`;
+    if (processedUrls) processedUrls.textContent = formatNumber(data.processed_urls);
+    if (totalUrls) totalUrls.textContent = formatNumber(data.total_urls);
+    
+    // Update stats
+    updateElement('hitsFound', data.hits_count || 0);
+    updateElement('urlsPerSec', Math.round(data.urls_per_sec || 0));
+    updateElement('errorsCount', data.errors_count || 0);
+    
+    // Update ETA
+    if (data.eta_seconds) {
+        updateElement('eta', formatDuration(data.eta_seconds));
+    }
+}
+
+function addLogLine(logData) {
+    const container = document.getElementById('liveLogsContainer');
+    if (!container) return;
+    
+    const logLine = document.createElement('div');
+    logLine.className = 'log-line';
+    
+    const now = new Date();
+    const time = now.toTimeString().split(' ')[0];
+    
+    logLine.innerHTML = `
+        <span class="log-time">${time}</span>
+        <span class="log-level ${logData.level || 'info'}">${(logData.level || 'info').toUpperCase()}</span>
+        <span class="log-message">${logData.message}</span>
+    `;
+    
+    container.appendChild(logLine);
+    
+    // Keep only last 100 log lines
+    const lines = container.querySelectorAll('.log-line');
+    if (lines.length > 100) {
+        lines[0].remove();
+    }
+    
+    // Auto scroll to bottom
+    container.scrollTop = container.scrollHeight;
 }
 
 // Utility functions
-function showError(elementId, message) {
-    const element = document.getElementById(elementId);
-    element.textContent = message;
-    element.classList.add('show');
+function updateElement(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = value;
+    }
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'k';
+    }
+    return num.toString();
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDuration(seconds) {
+    if (seconds < 60) {
+        return `${seconds}s`;
+    } else if (seconds < 3600) {
+        return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    } else {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${hours}h ${minutes}m`;
+    }
+}
+
+function showError(message) {
+    showNotification(message, 'error');
+}
+
+function showSuccess(message) {
+    showNotification(message, 'success');
+}
+
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    // Add styles
+    Object.assign(notification.style, {
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        padding: '12px 24px',
+        borderRadius: '8px',
+        color: 'white',
+        fontWeight: '500',
+        zIndex: '10000',
+        opacity: '0',
+        transform: 'translateY(-20px)',
+        transition: 'all 0.3s ease',
+        maxWidth: '400px'
+    });
+    
+    // Set type-specific styles
+    switch (type) {
+        case 'success':
+            notification.style.background = '#10B981';
+            break;
+        case 'error':
+            notification.style.background = '#EF4444';
+            break;
+        default:
+            notification.style.background = '#6B7280';
+    }
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Animate in
     setTimeout(() => {
-        element.classList.remove('show');
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateY(0)';
+    }, 10);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
     }, 5000);
 }
 
-// Export functions
-document.getElementById('exportJson').addEventListener('click', () => {
-    if (currentScanId) {
-        window.open(`/api/v1/scans/${currentScanId}/export/json`, '_blank');
-    }
-});
+// Global functions for HTML onclick handlers
+window.showTab = showTab;
+window.closeUploadModal = closeUploadModal;
 
-document.getElementById('exportCsv').addEventListener('click', () => {
-    if (currentScanId) {
-        window.open(`/api/v1/scans/${currentScanId}/export/csv`, '_blank');
+window.downloadList = async function(listId) {
+    try {
+        const response = await fetch(`/api/v1/lists/${listId}/download`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `list_${listId}.txt`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+    } catch (error) {
+        console.error('Download error:', error);
+        showError('Failed to download list');
     }
-});
+};
 
-// Config functions (placeholder)
-function loadConfig() {
-    document.getElementById('configForm').innerHTML = `
-        <p>Configuration management coming soon...</p>
-        <p>Current features:</p>
-        <ul>
-            <li>Authentication enabled</li>
-            <li>Rate limiting active</li>
-            <li>Default patterns loaded</li>
-        </ul>
-    `;
-}
+window.deleteList = async function(listId) {
+    if (!confirm('Are you sure you want to delete this list?')) return;
+    
+    try {
+        const response = await fetch(`/api/v1/lists/${listId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            loadLists(); // Reload lists
+            showSuccess('List deleted successfully');
+        } else {
+            showError('Failed to delete list');
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        showError('Failed to delete list');
+    }
+};
+
+console.log('✨ HTTPx Cloud Scanner loaded');
