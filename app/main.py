@@ -71,6 +71,8 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         self.period = period
         self.clients = {}
         self.redis_available = False
+        self.last_redis_check = 0.0
+        self.retry_interval = 30.0  # seconds
     
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host
@@ -79,40 +81,45 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/healthz", "/metrics"]:
             return await call_next(request)
         
+        now = time.time()
         try:
-            # Try to use Redis for distributed rate limiting
-            if not self.redis_available:
+            # Only re-check Redis availability after backoff interval
+            if not self.redis_available and (now - self.last_redis_check) >= self.retry_interval:
+                from .core.redis_manager import redis_manager
+                if redis_manager and redis_manager.client:
+                    # Test Redis connectivity without making actual rate limit call
+                    await redis_manager.client.ping()
+                    self.redis_available = True
+                else:
+                    # Redis manager not initialized
+                    raise RuntimeError("Redis not available")
+            
+            if self.redis_available:
                 from .core.redis_manager import get_redis
                 redis = get_redis()
-                self.redis_available = True
-            
-            # Use Redis-based rate limiting
-            rate_limit_key = f"rate_limit:{client_ip}"
-            allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
-            
-            if not allowed:
-                return Response("Rate limit exceeded", status_code=429)
+                rate_limit_key = f"rate_limit:{client_ip}"
+                allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
+                if not allowed:
+                    return Response("Rate limit exceeded", status_code=429)
                 
         except Exception:
-            # Fall back to in-memory rate limiting
-            now = time.time()
+            # Back off further Redis attempts to avoid noisy logs
+            self.redis_available = False
+            self.last_redis_check = now
             
-            # Clean old entries
-            self.clients = {
-                ip: times for ip, times in self.clients.items()
-                if any(t > now - self.period for t in times)
-            }
+            # Fallback to in-memory rate limiting
+            ts = time.time()
+            # Clean old timestamps
+            for ip in list(self.clients.keys()):
+                self.clients[ip] = [t for t in self.clients[ip] if t > ts - self.period]
+                if not self.clients[ip]:
+                    self.clients.pop(ip, None)
             
-            # Check rate limit
-            client_calls = self.clients.get(client_ip, [])
-            recent_calls = [t for t in client_calls if t > now - self.period]
-            
-            if len(recent_calls) >= self.calls:
+            timestamps = self.clients.get(client_ip, [])
+            if len(timestamps) >= self.calls:
                 return Response("Rate limit exceeded", status_code=429)
-            
-            # Record this call
-            recent_calls.append(now)
-            self.clients[client_ip] = recent_calls
+            timestamps.append(ts)
+            self.clients[client_ip] = timestamps
         
         response = await call_next(request)
         return response
