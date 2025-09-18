@@ -12,7 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 import structlog
 
@@ -99,11 +99,10 @@ class FindingDB(Base):
     confidence = Column(Float, default=0.5)
     severity = Column(String(20), default="medium", index=True)
     
-    # Enhanced fields for cloud services
-    regions = Column(JSON, default=lambda: [])
-    capabilities = Column(JSON, default=lambda: [])
-    quotas = Column(JSON, default=lambda: {})
-    verified_identities = Column(JSON, default=lambda: [])
+    regions = Column(ARRAY(String), default=[])
+    capabilities = Column(ARRAY(String), default=[])
+    quotas = Column(JSON, default={})
+    verified_identities = Column(ARRAY(String), default=[])
     
     # Relationships
     scan = relationship("ScanDB", back_populates="findings")
@@ -151,20 +150,6 @@ class SettingsDB(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
-class EventDB(Base):
-    """Database model for events (WebSocket and notifications)"""
-    __tablename__ = "events"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True, index=True)
-    event_type = Column(String(50), nullable=False, index=True)
-    data = Column(JSON, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
-    
-    # Relationships
-    scan = relationship("ScanDB", back_populates="events")
-
-
 class AuditLogDB(Base):
     """Database model for audit logs"""
     __tablename__ = "audit_logs"
@@ -191,67 +176,165 @@ class StatSnapshotDB(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
-# Create indexes for performance
+class EventDB(Base):
 Index('idx_scans_status_created', ScanDB.status, ScanDB.created_at)
 Index('idx_findings_scan_service', FindingDB.scan_id, FindingDB.service)
 Index('idx_findings_works_confidence', FindingDB.works, FindingDB.confidence)
 Index('idx_lists_type_name', ListDB.list_type, ListDB.name)
 Index('idx_settings_category_key', SettingsDB.category, SettingsDB.key)
 Index('idx_audit_action_created', AuditLogDB.action, AuditLogDB.created_at)
-
-
-# Global variables
-async_engine = None
-async_session_factory = None
-
-
-async def init_database(database_url: str = "sqlite+aiosqlite:///./httpx_scanner.db"):
-    """Initialize the database"""
-    global async_engine, async_session_factory
+    """Database model for events (WebSocket and notifications)"""
+    __tablename__ = "events"
     
-    try:
-        logger.info("Initializing database", url=database_url)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    data = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    
+    # Relationships
+    scan = relationship("ScanDB", back_populates="events")
+
+
+class SettingsDB(Base):
+    """Database model for application settings"""
+    __tablename__ = "settings"
+    
+    key = Column(String(100), primary_key=True)
+    value = Column(JSON, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PresetDB(Base):
+    """Database model for scan presets"""
+    __tablename__ = "presets"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    config = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WordlistDB(Base):
+    """Database model for uploaded wordlists"""
+    __tablename__ = "wordlists"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    filename = Column(String(255), nullable=False, unique=True)
+    original_filename = Column(String(255), nullable=False)
+    paths_count = Column(Integer, nullable=False)
+    file_size = Column(Integer, nullable=False)  # bytes
+    uploaded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    
+
+class AuditLogDB(Base):
+    """Database model for audit logs"""
+    __tablename__ = "audit_logs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(100), nullable=True)
+    scan_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(50), nullable=True)
+    resource_id = Column(String(100), nullable=True)
+    details = Column(JSON, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# Create indexes for performance
+Index('idx_findings_scan_service', FindingDB.scan_id, FindingDB.service)
+Index('idx_findings_works_created', FindingDB.works, FindingDB.created_at)
+Index('idx_scans_status_created', ScanDB.status, ScanDB.created_at)
+Index('idx_events_scan_type_created', EventDB.scan_id, EventDB.event_type, EventDB.created_at)
+Index('idx_audit_logs_action_created', AuditLogDB.action, AuditLogDB.created_at)
+
+
+class DatabaseManager:
+    """Database manager for async operations"""
+    
+    def __init__(self, database_url: str):
+        self.database_url = database_url
+        self.engine = None
+        self.async_session = None
         
-        # Create async engine
-        async_engine = create_async_engine(
-            database_url,
-            echo=False,
-            future=True
-        )
-        
-        # Create session factory
-        async_session_factory = async_sessionmaker(
-            bind=async_engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-        
-        # Create all tables
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        
-        logger.info("Database initialized successfully")
-        
-    except Exception as e:
-        logger.error("Failed to create database tables", error=str(e))
-        raise
+    async def initialize(self):
+        """Initialize database connection"""
+        try:
+            self.engine = create_async_engine(
+                self.database_url,
+                echo=False,
+                pool_size=20,
+                max_overflow=30,
+                pool_pre_ping=True,
+                pool_recycle=3600
+            )
+            
+            self.async_session = async_sessionmaker(
+                self.engine, 
+                class_=AsyncSession,
+                expire_on_commit=False
+            )
+            
+            logger.info("Database connection initialized", url=self.database_url.split("@")[-1])
+            
+        except Exception as e:
+            logger.error("Failed to initialize database", error=str(e))
+            raise
+    
+    async def create_tables(self):
+        """Create database tables"""
+        try:
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error("Failed to create database tables", error=str(e))
+            raise
+    
+    async def close(self):
+        """Close database connection"""
+        if self.engine:
+            await self.engine.dispose()
+            logger.info("Database connection closed")
+    
+    def get_session(self) -> AsyncSession:
+        """Get database session"""
+        if not self.async_session:
+            raise RuntimeError("Database not initialized")
+        return self.async_session()
+
+
+# Global database manager instance
+db_manager: Optional[DatabaseManager] = None
 
 
 async def get_db_session() -> AsyncSession:
-    """Get database session"""
-    if not async_session_factory:
-        raise RuntimeError("Database not initialized")
+    """Dependency to get database session"""
+    if not db_manager:
+        raise RuntimeError("Database manager not initialized")
     
-    async with async_session_factory() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    session = db_manager.get_session() 
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
-async def cleanup_database():
-    """Cleanup database connections"""
-    global async_engine
-    if async_engine:
-        await async_engine.dispose()
-        logger.info("Database connections closed")
+async def init_database(database_url: str):
+    """Initialize database connection"""
+    global db_manager
+    db_manager = DatabaseManager(database_url)
+    await db_manager.initialize()
+    await db_manager.create_tables()
+
+
+async def close_database():
+    """Close database connection"""
+    global db_manager
+    if db_manager:
+        await db_manager.close()
+        db_manager = None
