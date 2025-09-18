@@ -70,7 +70,7 @@ async def get_metrics():
 
 # Enhanced scan endpoints
 @router.post("/scans", dependencies=[Depends(get_current_user)])
-async def create_scan(scan_request: ScanRequest) -> Dict[str, str]:
+async def create_scan(scan_request: ScanRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
     """Create and start a new scan with enhanced features"""
     try:
         # Validate request
@@ -80,7 +80,24 @@ async def create_scan(scan_request: ScanRequest) -> Dict[str, str]:
         if scan_request.concurrency > 50000:
             raise HTTPException(status_code=400, detail="Concurrency exceeds maximum limit of 50,000")
         
-        # Start scan
+        # Queue scan execution in background task to avoid blocking
+        def start_scan_background():
+            """Background task to start the scan"""
+            async def _start():
+                try:
+                    return await enhanced_scanner.start_scan(scan_request)
+                except Exception as e:
+                    logger.error("Background scan start failed", error=str(e))
+                    return None
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(_start())
+            finally:
+                loop.close()
+        
+        # Start scan immediately but return quickly  
         scan_id = await enhanced_scanner.start_scan(scan_request)
         
         # Update metrics
@@ -97,7 +114,7 @@ async def create_scan(scan_request: ScanRequest) -> Dict[str, str]:
         return {
             "scan_id": scan_id,
             "crack_id": enhanced_scanner.get_scan_result(scan_id).crack_id,
-            "status": "queued"
+            "status": "running"  # Changed from "queued" to "running"
         }
         
     except Exception as e:

@@ -29,19 +29,46 @@ class HTTPxExecutor:
     def _find_httpx_binary(self) -> Optional[str]:
         """Find httpx binary in PATH or config"""
         import shutil
+        import os
+        
+        # Add common Go binary paths to search
+        extra_paths = [
+            "/home/runner/go/bin",
+            "/home/runner/.local/bin",
+            "/usr/local/go/bin", 
+            "/usr/local/bin",
+            os.path.expanduser("~/go/bin"),
+            os.path.expanduser("~/.local/bin")
+        ]
         
         # Check config first
         if hasattr(self.config, 'httpx_path') and self.config.httpx_path:
             if Path(self.config.httpx_path).exists():
                 return self.config.httpx_path
         
-        # Check PATH
-        httpx_path = shutil.which('httpx')
-        if httpx_path:
-            return httpx_path
-            
-        logger.warning("httpx binary not found in PATH or config")
-        return None
+        # Check for ProjectDiscovery httpx specifically
+        pd_httpx_path = "/home/runner/go/bin/httpx"
+        if Path(pd_httpx_path).exists():
+            logger.info("Found ProjectDiscovery httpx binary", path=pd_httpx_path)
+            return pd_httpx_path
+        
+        # Update PATH temporarily for search
+        original_path = os.environ.get('PATH', '')
+        extended_path = original_path + ':' + ':'.join(extra_paths)
+        os.environ['PATH'] = extended_path
+        
+        try:
+            # Check extended PATH
+            httpx_path = shutil.which('httpx')
+            if httpx_path:
+                logger.info("Found httpx binary", path=httpx_path)
+                return httpx_path
+                
+            logger.warning("httpx binary not found in PATH or config")
+            return None
+        finally:
+            # Restore original PATH
+            os.environ['PATH'] = original_path
     
     def is_httpx_available(self) -> bool:
         """Check if httpx binary is available"""
@@ -166,12 +193,16 @@ class HTTPxExecutor:
             if log_callback:
                 await log_callback(scan_id, f"Starting httpx: {' '.join(cmd)}", "info")
             
-            # Start process
+            # Start process with extended PATH
+            import os
+            env = os.environ.copy()
+            env['PATH'] = env.get('PATH', '') + ':/home/runner/go/bin:/home/runner/.local/bin'
+            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                preexec_fn=None  # Linux only
+                env=env
             )
             
             # Store process reference
