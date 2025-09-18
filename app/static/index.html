@@ -92,25 +92,29 @@
                     <span class="nav-icon">📊</span>
                     <span class="nav-label">Dashboard</span>
                 </button>
+                <button class="nav-btn" data-tab="statistiques">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-label">Statistiques</span>
+                </button>
+                <button class="nav-btn" data-tab="resultats">
+                    <span class="nav-icon">🎯</span>
+                    <span class="nav-label">Résultats</span>
+                </button>
+                <button class="nav-btn" data-tab="domaines">
+                    <span class="nav-icon">📂</span>
+                    <span class="nav-label">Domaines</span>
+                </button>
+                <button class="nav-btn" data-tab="grabber">
+                    <span class="nav-icon">🔍</span>
+                    <span class="nav-label">Grabber</span>
+                </button>
                 <button class="nav-btn" data-tab="scan">
-                    <span class="nav-icon">🎯</span>
-                    <span class="nav-label">Scan</span>
+                    <span class="nav-icon">🚀</span>
+                    <span class="nav-label">Nouveau Scan</span>
                 </button>
-                <button class="nav-btn" data-tab="lists">
-                    <span class="nav-icon">📋</span>
-                    <span class="nav-label">Lists</span>
-                </button>
-                <button class="nav-btn" data-tab="ipgen">
-                    <span class="nav-icon">🌐</span>
-                    <span class="nav-label">IP Generator</span>
-                </button>
-                <button class="nav-btn" data-tab="hits">
-                    <span class="nav-icon">🎯</span>
-                    <span class="nav-label">Hits</span>
-                </button>
-                <button class="nav-btn" data-tab="settings">
+                <button class="nav-btn" data-tab="configuration">
                     <span class="nav-icon">⚙️</span>
-                    <span class="nav-label">Settings</span>
+                    <span class="nav-label">Configuration</span>
                 </button>
             </nav>
 
@@ -588,71 +592,384 @@
                 </div>
             </div>
 
-            <!-- Settings Tab -->
-            <div id="settings" class="tab-content">
+            <!-- Statistiques du Scan Tab -->
+            <div id="statistiques" class="tab-content">
+                <div class="scan-stats-container">
+                    <div class="stats-header">
+                        <h2>📈 Statistiques du Scan</h2>
+                        <div class="scan-controls">
+                            <button id="startScanBtn" class="btn btn-success">▶️ Démarrer</button>
+                            <button id="pauseScanBtn" class="btn btn-warning" style="display: none;">⏸️ Pause</button>
+                            <button id="stopScanBtn" class="btn btn-danger" style="display: none;">⏹️ Arrêter</button>
+                            <button id="refreshStatsBtn" class="btn btn-secondary">🔄 Actualiser</button>
+                        </div>
+                    </div>
+
+                    <!-- Contrôle du Cracker -->
+                    <div class="cracker-control-section">
+                        <div class="control-card">
+                            <h3>🎮 Contrôle du Cracker</h3>
+                            <div class="scan-status-display">
+                                <div class="status-indicator" id="scanStatusIndicator">🔴</div>
+                                <div class="status-text">
+                                    <div class="status-label" id="scanStatusLabel">ARRÊTÉ</div>
+                                    <div class="status-message" id="scanStatusMessage">Prêt pour le scan</div>
+                                </div>
+                            </div>
+                            <div class="system-info">
+                                <div class="info-item">
+                                    <span class="info-label">CPU:</span>
+                                    <span class="info-value" id="systemCpuUsage">0%</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">RAM:</span>
+                                    <span class="info-value" id="systemRamUsage">0 MB</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Réseau:</span>
+                                    <span class="info-value" id="systemNetUsage">0 MB/s</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Progress & Metrics -->
+                    <div class="progress-section">
+                        <div class="progress-card">
+                            <div class="progress-header">
+                                <h4>📊 Progression du Scan</h4>
+                                <div class="progress-percentage" id="scanProgressPercent">0%</div>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="scanProgressBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="progress-stats">
+                                <div class="progress-stat">
+                                    <span class="stat-label">URLs traitées:</span>
+                                    <span class="stat-value" id="urlsProcessed">0</span>
+                                </div>
+                                <div class="progress-stat">
+                                    <span class="stat-label">Vitesse:</span>
+                                    <span class="stat-value" id="urlsPerSec">0 URLs/sec</span>
+                                </div>
+                                <div class="progress-stat">
+                                    <span class="stat-label">Requêtes HTTPS/sec:</span>
+                                    <span class="stat-value" id="httpsReqsPerSec">0</span>
+                                </div>
+                                <div class="progress-stat">
+                                    <span class="stat-label">Précision:</span>
+                                    <span class="stat-value" id="scanPrecision">0.00%</span>
+                                </div>
+                                <div class="progress-stat">
+                                    <span class="stat-label">Durée:</span>
+                                    <span class="stat-value" id="scanDuration">00:00:00</span>
+                                </div>
+                                <div class="progress-stat">
+                                    <span class="stat-label">ETA:</span>
+                                    <span class="stat-value" id="scanETA">--:--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Provider Tiles -->
+                    <div class="providers-section">
+                        <h3>🎯 Hits totaux: <span id="totalHitsCount">0</span></h3>
+                        <div class="provider-tiles">
+                            <div class="provider-tile" data-provider="aws">
+                                <div class="provider-icon">☁️</div>
+                                <div class="provider-name">AWS</div>
+                                <div class="provider-count" id="awsCount">0</div>
+                            </div>
+                            <div class="provider-tile" data-provider="sendgrid">
+                                <div class="provider-icon">📧</div>
+                                <div class="provider-name">SendGrid</div>
+                                <div class="provider-count" id="sendgridCount">0</div>
+                            </div>
+                            <div class="provider-tile" data-provider="sparkpost">
+                                <div class="provider-icon">⚡</div>
+                                <div class="provider-name">SparkPost</div>
+                                <div class="provider-count" id="sparkpostCount">0</div>
+                            </div>
+                            <div class="provider-tile" data-provider="twilio">
+                                <div class="provider-icon">💬</div>
+                                <div class="provider-name">Twilio</div>
+                                <div class="provider-count" id="twilioCount">0</div>
+                            </div>
+                            <div class="provider-tile" data-provider="brevo">
+                                <div class="provider-icon">🔵</div>
+                                <div class="provider-name">Brevo</div>
+                                <div class="provider-count" id="brevoCount">0</div>
+                            </div>
+                            <div class="provider-tile" data-provider="mailgun">
+                                <div class="provider-icon">🔫</div>
+                                <div class="provider-name">MailGun</div>
+                                <div class="provider-count" id="mailgunCount">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Résultats des Hits Tab -->
+            <div id="resultats" class="tab-content">
+                <div class="results-container">
+                    <div class="results-header">
+                        <h2>🎯 Résultats des Hits</h2>
+                        <div class="results-counters">
+                            <div class="counter-item">
+                                <span class="counter-label">Validés:</span>
+                                <span class="counter-value" id="validatedCount">0</span>
+                            </div>
+                            <div class="counter-item">
+                                <span class="counter-label">Invalides:</span>
+                                <span class="counter-value" id="invalidatedCount">0</span>
+                            </div>
+                            <div class="counter-item">
+                                <span class="counter-label">Total:</span>
+                                <span class="counter-value" id="totalResultsCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="results-filters">
+                        <div class="filter-group">
+                            <label for="serviceFilter">Service:</label>
+                            <select id="serviceFilter">
+                                <option value="all">Tous les services</option>
+                                <option value="aws">AWS</option>
+                                <option value="sendgrid">SendGrid</option>
+                                <option value="sparkpost">SparkPost</option>
+                                <option value="twilio">Twilio</option>
+                                <option value="brevo">Brevo</option>
+                                <option value="mailgun">MailGun</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="validationFilter">Statut:</label>
+                            <select id="validationFilter">
+                                <option value="all">Tous</option>
+                                <option value="true">Validés</option>
+                                <option value="false">Invalides</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="sortFilter">Trier par:</label>
+                            <select id="sortFilter">
+                                <option value="date_desc">Date (récent)</option>
+                                <option value="date_asc">Date (ancien)</option>
+                            </select>
+                        </div>
+                        <div class="filter-actions">
+                            <button id="applyFiltersBtn" class="btn btn-primary">🔍 Appliquer</button>
+                            <button id="resetFiltersBtn" class="btn btn-secondary">🔄 Reset</button>
+                            <button id="purgeResultsBtn" class="btn btn-danger">🗑️ Supprimer Tout</button>
+                        </div>
+                    </div>
+
+                    <!-- Results List -->
+                    <div class="results-list">
+                        <div id="resultsTableContainer">
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th>Service</th>
+                                        <th>Host</th>
+                                        <th>Statut</th>
+                                        <th>Découvert</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="resultsTableBody">
+                                    <!-- Results will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="noResultsMessage" class="no-results" style="display: none;">
+                            <div class="no-results-icon">🤷‍♂️</div>
+                            <div class="no-results-text">Aucun résultat trouvé</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gestion des Domaines Tab -->
+            <div id="domaines" class="tab-content">
+                <div class="domains-container">
+                    <div class="domains-header">
+                        <h2>📂 Gestion des Domaines</h2>
+                        <div class="domains-actions">
+                            <button id="uploadDomainsBtn" class="btn btn-primary">📤 Importer</button>
+                            <button id="refreshDomainsBtn" class="btn btn-secondary">🔄 Actualiser</button>
+                        </div>
+                    </div>
+
+                    <!-- Upload Form -->
+                    <div class="upload-section">
+                        <div class="upload-card">
+                            <h3>📤 Importer des Domaines</h3>
+                            <form id="domainUploadForm" class="upload-form">
+                                <div class="form-group">
+                                    <label for="domainFile">Fichier de domaines:</label>
+                                    <input type="file" id="domainFile" name="file" accept=".txt,.list" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="uploadDescription">Description (optionnelle):</label>
+                                    <input type="text" id="uploadDescription" name="description" placeholder="Exemple: Domaines tech companies">
+                                </div>
+                                <button type="submit" class="btn btn-success">📤 Télécharger</button>
+                            </form>
+                            <div class="upload-notes">
+                                <h4>ℹ️ Notes importantes:</h4>
+                                <ul>
+                                    <li>Les fichiers volumineux sont automatiquement dédupliqués</li>
+                                    <li>Format supporté: un domaine par ligne</li>
+                                    <li>Taille maximum: 50 MB</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Available Files -->
+                    <div class="files-section">
+                        <h3>📋 Fichiers Disponibles</h3>
+                        <div id="domainFilesList" class="files-list">
+                            <!-- Domain files will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grabber Tab -->
+            <div id="grabber" class="tab-content">
+                <div class="grabber-container">
+                    <div class="grabber-header">
+                        <h2>🔍 Grabber de Domaines</h2>
+                        <div class="grabber-controls">
+                            <button id="startGrabberBtn" class="btn btn-success">▶️ Démarrer</button>
+                            <button id="stopGrabberBtn" class="btn btn-danger" style="display: none;">⏹️ Arrêter</button>
+                        </div>
+                    </div>
+
+                    <!-- Grabber Configuration -->
+                    <div class="grabber-config">
+                        <div class="config-card">
+                            <h3>⚙️ Configuration</h3>
+                            <form id="grabberConfigForm" class="config-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="grabberSeeds">Seeds (optionnel):</label>
+                                        <textarea id="grabberSeeds" name="seeds" placeholder="example.com&#10;test.org&#10;demo.net" rows="4"></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxDomains">Max Domaines:</label>
+                                        <input type="number" id="maxDomains" name="maxDomains" value="1000" min="100" max="10000">
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Grabber Status -->
+                    <div class="grabber-status">
+                        <div class="status-card">
+                            <h3>📊 Statut du Grabber</h3>
+                            <div class="status-info">
+                                <div class="status-item">
+                                    <span class="status-label">État:</span>
+                                    <span class="status-value" id="grabberStatus">Arrêté</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Progression:</span>
+                                    <span class="status-value" id="grabberProgress">0%</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Domaines générés:</span>
+                                    <span class="status-value" id="domainsGenerated">0</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">ETA:</span>
+                                    <span class="status-value" id="grabberETA">--:--:--</span>
+                                </div>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" id="grabberProgressBar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration Tab (renamed from Settings) -->
+            <div id="configuration" class="tab-content">
                 <div class="settings-container">
                     <div class="settings-header">
-                        <h2>⚙️ System Configuration</h2>
-                        <div class="settings-subtitle">Configure notifications, defaults, and system behavior</div>
+                        <h2>⚙️ Configuration Système</h2>
+                        <div class="settings-subtitle">Configurer les notifications, les paramètres par défaut et le comportement du système</div>
                     </div>
 
                     <div class="settings-sections">
                         <!-- Telegram Notifications -->
                         <div class="settings-section">
-                            <h3>📱 Telegram Notifications</h3>
+                            <h3>📱 Notifications Telegram</h3>
                             <form id="telegramForm" class="settings-form">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="telegramBotToken">Bot Token:</label>
-                                        <input type="password" id="telegramBotToken" name="botToken" placeholder="Enter bot token">
-                                        <small>Create a bot via @BotFather and get the token</small>
+                                        <label for="telegramBotToken">Token du Bot:</label>
+                                        <input type="password" id="telegramBotToken" name="botToken" placeholder="Entrez le token du bot">
+                                        <small>Créez un bot via @BotFather et obtenez le token</small>
                                     </div>
                                     <div class="form-group">
-                                        <label for="telegramChatId">Chat ID:</label>
-                                        <input type="text" id="telegramChatId" name="chatId" placeholder="Enter chat ID">
-                                        <small>Get your chat ID by messaging your bot</small>
+                                        <label for="telegramChatId">ID du Chat:</label>
+                                        <input type="text" id="telegramChatId" name="chatId" placeholder="Entrez l'ID du chat">
+                                        <small>Obtenez votre ID de chat en envoyant un message à votre bot</small>
                                     </div>
                                 </div>
                                 <div class="form-actions">
-                                    <button type="button" id="testTelegramBtn" class="btn btn-accent">🧪 Test Notification</button>
-                                    <button type="submit" class="btn btn-primary">💾 Save Settings</button>
+                                    <button type="button" id="testTelegramBtn" class="btn btn-accent">🧪 Tester Notification</button>
+                                    <button type="submit" class="btn btn-primary">💾 Sauvegarder</button>
                                 </div>
                             </form>
                         </div>
 
                         <!-- Scan Defaults -->
                         <div class="settings-section">
-                            <h3>🎯 Scan Defaults</h3>
+                            <h3>🎯 Paramètres de Scan par Défaut</h3>
                             <form id="scanDefaultsForm" class="settings-form">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="defaultConcurrency">Default Concurrency:</label>
+                                        <label for="defaultConcurrency">Concurrence par Défaut:</label>
                                         <input type="number" id="defaultConcurrency" name="concurrency" value="1000" min="10" max="50000">
                                     </div>
                                     <div class="form-group">
-                                        <label for="defaultTimeout">Default Timeout:</label>
+                                        <label for="defaultTimeout">Timeout par Défaut:</label>
                                         <input type="number" id="defaultTimeout" name="timeout" value="10" min="1" max="60">
                                     </div>
                                 </div>
-                                <button type="submit" class="btn btn-primary">💾 Save Defaults</button>
+                                <button type="submit" class="btn btn-primary">💾 Sauvegarder Défauts</button>
                             </form>
                         </div>
 
                         <!-- Data Retention -->
                         <div class="settings-section">
-                            <h3>🗄️ Data Retention</h3>
+                            <h3>🗄️ Rétention des Données</h3>
                             <form id="retentionForm" class="settings-form">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="scanRetentionDays">Scan Retention (days):</label>
+                                        <label for="scanRetentionDays">Rétention des Scans (jours):</label>
                                         <input type="number" id="scanRetentionDays" name="scanRetention" value="30" min="1" max="365">
                                     </div>
                                     <div class="form-group">
-                                        <label for="hitRetentionDays">Hit Retention (days):</label>
+                                        <label for="hitRetentionDays">Rétention des Hits (jours):</label>
                                         <input type="number" id="hitRetentionDays" name="hitRetention" value="90" min="1" max="365">
                                     </div>
                                 </div>
-                                <button type="submit" class="btn btn-primary">💾 Save Retention</button>
+                                <button type="submit" class="btn btn-primary">💾 Sauvegarder Rétention</button>
                             </form>
                         </div>
                     </div>

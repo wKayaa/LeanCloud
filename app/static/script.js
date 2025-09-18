@@ -1105,3 +1105,738 @@ function pauseScan(scanId) {
 function stopScan(scanId) {
     console.log('Stop scan:', scanId);
 }
+
+// ==========================================
+// FRENCH PANEL FUNCTIONALITY
+// ==========================================
+
+// Statistiques du Scan functionality
+let currentScanTelemetry = null;
+let telemetryWebSocket = null;
+
+function initStatistiquesTab() {
+    // Initialize Statistiques tab event listeners
+    document.getElementById('startScanBtn')?.addEventListener('click', handleStartScan);
+    document.getElementById('pauseScanBtn')?.addEventListener('click', handlePauseScan);
+    document.getElementById('stopScanBtn')?.addEventListener('click', handleStopScan);
+    document.getElementById('refreshStatsBtn')?.addEventListener('click', refreshScanStats);
+    
+    // Initialize WebSocket for telemetry
+    initTelemetryWebSocket();
+}
+
+async function handleStartScan() {
+    try {
+        // For demo, start a mock scan
+        const response = await fetch(`${API_BASE}/scans`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                targets: ['example.com', 'test.com'],
+                concurrency: 100,
+                rate_limit: 50
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            currentScanTelemetry = result.scan_id;
+            updateScanStatus('running', 'SCAN EN COURS', 'Analyse en cours...');
+            showScanControls('running');
+        }
+    } catch (error) {
+        console.error('Failed to start scan:', error);
+    }
+}
+
+async function handlePauseScan() {
+    if (!currentScanTelemetry) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/scans/${currentScanTelemetry}/pause`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            updateScanStatus('paused', 'EN PAUSE', 'Scan mis en pause');
+            showScanControls('paused');
+        }
+    } catch (error) {
+        console.error('Failed to pause scan:', error);
+    }
+}
+
+async function handleStopScan() {
+    if (!currentScanTelemetry) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/scans/${currentScanTelemetry}/stop`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            updateScanStatus('stopped', 'ARRÊTÉ', 'Prêt pour le scan');
+            showScanControls('stopped');
+            currentScanTelemetry = null;
+        }
+    } catch (error) {
+        console.error('Failed to stop scan:', error);
+    }
+}
+
+function updateScanStatus(status, label, message) {
+    const indicator = document.getElementById('scanStatusIndicator');
+    const labelEl = document.getElementById('scanStatusLabel');
+    const messageEl = document.getElementById('scanStatusMessage');
+    
+    if (indicator) {
+        const statusIcons = {
+            'stopped': '🔴',
+            'running': '🟢',
+            'paused': '🟡'
+        };
+        indicator.textContent = statusIcons[status] || '⚪';
+    }
+    
+    if (labelEl) labelEl.textContent = label;
+    if (messageEl) messageEl.textContent = message;
+}
+
+function showScanControls(status) {
+    const startBtn = document.getElementById('startScanBtn');
+    const pauseBtn = document.getElementById('pauseScanBtn');
+    const stopBtn = document.getElementById('stopScanBtn');
+    
+    if (status === 'running') {
+        if (startBtn) startBtn.style.display = 'none';
+        if (pauseBtn) pauseBtn.style.display = 'inline-block';
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+    } else {
+        if (startBtn) startBtn.style.display = 'inline-block';
+        if (pauseBtn) pauseBtn.style.display = 'none';
+        if (stopBtn) stopBtn.style.display = 'none';
+    }
+}
+
+function initTelemetryWebSocket() {
+    if (!authToken) return;
+    
+    const wsUrl = `ws://${window.location.host}/ws/dashboard?token=${authToken}`;
+    telemetryWebSocket = new WebSocket(wsUrl);
+    
+    telemetryWebSocket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'scan.progress') {
+            updateScanTelemetry(data.data);
+        } else if (data.type === 'dashboard.stats') {
+            updateDashboardTelemetry(data.data);
+        }
+    };
+    
+    telemetryWebSocket.onerror = (error) => {
+        console.error('Telemetry WebSocket error:', error);
+    };
+}
+
+function updateScanTelemetry(telemetryData) {
+    // Update progress
+    const progressPercent = document.getElementById('scanProgressPercent');
+    const progressBar = document.getElementById('scanProgressBar');
+    
+    if (progressPercent && telemetryData.progress_percent !== undefined) {
+        progressPercent.textContent = `${telemetryData.progress_percent.toFixed(1)}%`;
+    }
+    
+    if (progressBar && telemetryData.progress_percent !== undefined) {
+        progressBar.style.width = `${telemetryData.progress_percent}%`;
+    }
+    
+    // Update stats
+    updateElementText('urlsProcessed', telemetryData.processed_urls || 0);
+    updateElementText('urlsPerSec', `${telemetryData.urls_per_sec || 0} URLs/sec`);
+    updateElementText('httpsReqsPerSec', telemetryData.https_reqs_per_sec || 0);
+    updateElementText('scanPrecision', `${(telemetryData.precision_percent || 0).toFixed(2)}%`);
+    updateElementText('scanDuration', formatDuration(telemetryData.duration_seconds || 0));
+    updateElementText('scanETA', formatDuration(telemetryData.eta_seconds || 0));
+    
+    // Update provider counts
+    if (telemetryData.provider_counts) {
+        updateElementText('awsCount', telemetryData.provider_counts.aws || 0);
+        updateElementText('sendgridCount', telemetryData.provider_counts.sendgrid || 0);
+        updateElementText('sparkpostCount', telemetryData.provider_counts.sparkpost || 0);
+        updateElementText('twilioCount', telemetryData.provider_counts.twilio || 0);
+        updateElementText('brevoCount', telemetryData.provider_counts.brevo || 0);
+        updateElementText('mailgunCount', telemetryData.provider_counts.mailgun || 0);
+        
+        const totalHits = Object.values(telemetryData.provider_counts).reduce((sum, count) => sum + count, 0);
+        updateElementText('totalHitsCount', totalHits);
+    }
+}
+
+function updateDashboardTelemetry(dashboardData) {
+    // Update system info
+    updateElementText('systemCpuUsage', `${(dashboardData.cpu_percent || 0).toFixed(1)}%`);
+    updateElementText('systemRamUsage', `${(dashboardData.ram_mb || 0).toFixed(0)} MB`);
+    updateElementText('systemNetUsage', `${(dashboardData.net_mbps_out || 0).toFixed(1)} MB/s`);
+}
+
+async function refreshScanStats() {
+    try {
+        // Mock refresh for demo
+        console.log('Refreshing scan stats...');
+        
+        // Update with demo data
+        updateScanTelemetry({
+            progress_percent: Math.random() * 100,
+            processed_urls: Math.floor(Math.random() * 105369),
+            urls_per_sec: Math.floor(Math.random() * 100),
+            https_reqs_per_sec: Math.floor(Math.random() * 8000),
+            precision_percent: Math.random() * 0.1,
+            duration_seconds: Math.floor(Math.random() * 3600),
+            eta_seconds: Math.floor(Math.random() * 1800),
+            provider_counts: {
+                aws: Math.floor(Math.random() * 10),
+                sendgrid: Math.floor(Math.random() * 10),
+                sparkpost: Math.floor(Math.random() * 5),
+                twilio: Math.floor(Math.random() * 5),
+                brevo: Math.floor(Math.random() * 5),
+                mailgun: Math.floor(Math.random() * 5)
+            }
+        });
+        
+        updateDashboardTelemetry({
+            cpu_percent: Math.random() * 100,
+            ram_mb: Math.random() * 2048,
+            net_mbps_out: Math.random() * 50
+        });
+        
+    } catch (error) {
+        console.error('Failed to refresh stats:', error);
+    }
+}
+
+// Résultats functionality
+function initResultatsTab() {
+    document.getElementById('applyFiltersBtn')?.addEventListener('click', applyResultsFilters);
+    document.getElementById('resetFiltersBtn')?.addEventListener('click', resetResultsFilters);
+    document.getElementById('purgeResultsBtn')?.addEventListener('click', purgeAllResults);
+    
+    loadResults();
+}
+
+async function loadResults() {
+    try {
+        const serviceFilter = document.getElementById('serviceFilter')?.value || 'all';
+        const validationFilter = document.getElementById('validationFilter')?.value || 'all';
+        const sortFilter = document.getElementById('sortFilter')?.value || 'date_desc';
+        
+        const params = new URLSearchParams();
+        if (serviceFilter !== 'all') params.append('service', serviceFilter);
+        if (validationFilter !== 'all') params.append('validated', validationFilter);
+        params.append('sort', sortFilter);
+        
+        const response = await fetch(`${API_BASE}/results?${params}`, {
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            displayResults(data.hits);
+            updateResultsCounters(data.counters);
+        } else {
+            // Show demo data if API not ready
+            showDemoResults();
+        }
+    } catch (error) {
+        console.error('Failed to load results:', error);
+        showDemoResults();
+    }
+}
+
+function displayResults(hits) {
+    const tbody = document.getElementById('resultsTableBody');
+    const noResults = document.getElementById('noResultsMessage');
+    
+    if (!tbody) return;
+    
+    if (hits.length === 0) {
+        tbody.innerHTML = '';
+        if (noResults) noResults.style.display = 'block';
+        return;
+    }
+    
+    if (noResults) noResults.style.display = 'none';
+    
+    tbody.innerHTML = hits.map(hit => `
+        <tr>
+            <td><span class="service-badge service-${hit.service}">${hit.service.toUpperCase()}</span></td>
+            <td>${hit.host}</td>
+            <td><span class="status-badge ${hit.validated ? 'status-valid' : 'status-invalid'}">${hit.validated ? 'Validé' : 'Invalide'}</span></td>
+            <td>${new Date(hit.discovered_at).toLocaleString('fr-FR')}</td>
+            <td>
+                <button class="btn btn-sm btn-primary" onclick="viewResultDetail('${hit.id}')">👁️ Voir</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteResult('${hit.id}')">🗑️ Suppr</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateResultsCounters(counters) {
+    updateElementText('validatedCount', counters.valides || 0);
+    updateElementText('invalidatedCount', counters.invalides || 0);
+    updateElementText('totalResultsCount', counters.total || 0);
+}
+
+function showDemoResults() {
+    // Show demo data for presentation
+    const demoHits = [
+        {
+            id: '1',
+            service: 'sendgrid',
+            host: 'api.example.com',
+            validated: true,
+            discovered_at: new Date()
+        },
+        {
+            id: '2',
+            service: 'aws',
+            host: 'app.test.com',
+            validated: false,
+            discovered_at: new Date()
+        }
+    ];
+    
+    displayResults(demoHits);
+    updateResultsCounters({ valides: 1, invalides: 1, total: 2 });
+}
+
+async function applyResultsFilters() {
+    await loadResults();
+}
+
+function resetResultsFilters() {
+    document.getElementById('serviceFilter').value = 'all';
+    document.getElementById('validationFilter').value = 'all';
+    document.getElementById('sortFilter').value = 'date_desc';
+    loadResults();
+}
+
+async function purgeAllResults() {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer tous les résultats ?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/results/purge`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            loadResults(); // Refresh the list
+            alert('Tous les résultats ont été supprimés.');
+        }
+    } catch (error) {
+        console.error('Failed to purge results:', error);
+    }
+}
+
+function viewResultDetail(hitId) {
+    console.log('View result detail:', hitId);
+    // Implementation for viewing detailed result
+}
+
+function deleteResult(hitId) {
+    if (!confirm('Supprimer ce résultat ?')) return;
+    console.log('Delete result:', hitId);
+    // Implementation for deleting single result
+}
+
+// Domaines functionality
+function initDomainesTab() {
+    document.getElementById('uploadDomainsBtn')?.addEventListener('click', showDomainUpload);
+    document.getElementById('refreshDomainsBtn')?.addEventListener('click', refreshDomainsList);
+    document.getElementById('domainUploadForm')?.addEventListener('submit', handleDomainUpload);
+    
+    loadDomainsList();
+}
+
+function showDomainUpload() {
+    document.querySelector('.upload-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function loadDomainsList() {
+    try {
+        const response = await fetch(`${API_BASE}/lists`, {
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            const lists = await response.json();
+            displayDomainsList(lists);
+        } else {
+            showDemoDomainsList();
+        }
+    } catch (error) {
+        console.error('Failed to load domains list:', error);
+        showDemoDomainsList();
+    }
+}
+
+function displayDomainsList(lists) {
+    const container = document.getElementById('domainFilesList');
+    if (!container) return;
+    
+    if (lists.length === 0) {
+        container.innerHTML = '<div class="no-results">Aucun fichier de domaines disponible</div>';
+        return;
+    }
+    
+    container.innerHTML = lists.map(list => `
+        <div class="file-item">
+            <div class="file-header">
+                <div class="file-name">📄 ${list.filename}</div>
+                <div class="file-actions">
+                    <button class="btn btn-sm btn-primary" onclick="useDomainsFile('${list.id}')">📋 Utiliser</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteDomainsList('${list.id}')">🗑️</button>
+                </div>
+            </div>
+            <div class="file-info">
+                <span>${list.domain_count} domaines</span>
+                <span>${formatFileSize(list.size)}</span>
+                <span>${new Date(list.created_at).toLocaleDateString('fr-FR')}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showDemoDomainsList() {
+    const demoLists = [
+        {
+            id: '1',
+            filename: 'common_domains.txt',
+            domain_count: 1500,
+            size: 25000,
+            created_at: new Date()
+        },
+        {
+            id: '2',
+            filename: 'tech_companies.txt',
+            domain_count: 850,
+            size: 15200,
+            created_at: new Date()
+        }
+    ];
+    
+    displayDomainsList(demoLists);
+}
+
+async function handleDomainUpload(event) {
+    event.preventDefault();
+    
+    const fileInput = document.getElementById('domainFile');
+    const file = fileInput.files[0];
+    
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const response = await fetch(`${API_BASE}/upload/targets`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`},
+            body: formData
+        });
+        
+        if (response.ok) {
+            alert('Fichier téléchargé avec succès !');
+            loadDomainsList();
+            fileInput.value = '';
+        }
+    } catch (error) {
+        console.error('Failed to upload domains file:', error);
+        alert('Erreur lors du téléchargement du fichier.');
+    }
+}
+
+function useDomainsFile(listId) {
+    console.log('Use domains file:', listId);
+    // Implementation for using domains file in scan
+}
+
+async function deleteDomainsList(listId) {
+    if (!confirm('Supprimer ce fichier de domaines ?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/lists/${listId}`, {
+            method: 'DELETE',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            loadDomainsList();
+        }
+    } catch (error) {
+        console.error('Failed to delete domains list:', error);
+    }
+}
+
+function refreshDomainsList() {
+    loadDomainsList();
+}
+
+// Grabber functionality
+function initGrabberTab() {
+    document.getElementById('startGrabberBtn')?.addEventListener('click', startGrabber);
+    document.getElementById('stopGrabberBtn')?.addEventListener('click', stopGrabber);
+    
+    loadGrabberStatus();
+}
+
+async function startGrabber() {
+    const seedsText = document.getElementById('grabberSeeds')?.value || '';
+    const maxDomains = parseInt(document.getElementById('maxDomains')?.value || '1000');
+    
+    const seeds = seedsText.split('\n').filter(s => s.trim()).map(s => s.trim());
+    
+    try {
+        const response = await fetch(`${API_BASE}/grabber/start`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ seeds, max_domains: maxDomains })
+        });
+        
+        if (response.ok) {
+            showGrabberControls('running');
+            startGrabberStatusPolling();
+        }
+    } catch (error) {
+        console.error('Failed to start grabber:', error);
+    }
+}
+
+async function stopGrabber() {
+    try {
+        const response = await fetch(`${API_BASE}/grabber/stop`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            showGrabberControls('stopped');
+            stopGrabberStatusPolling();
+        }
+    } catch (error) {
+        console.error('Failed to stop grabber:', error);
+    }
+}
+
+function showGrabberControls(status) {
+    const startBtn = document.getElementById('startGrabberBtn');
+    const stopBtn = document.getElementById('stopGrabberBtn');
+    
+    if (status === 'running') {
+        if (startBtn) startBtn.style.display = 'none';
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+    } else {
+        if (startBtn) startBtn.style.display = 'inline-block';
+        if (stopBtn) stopBtn.style.display = 'none';
+    }
+}
+
+let grabberStatusInterval = null;
+
+function startGrabberStatusPolling() {
+    if (grabberStatusInterval) clearInterval(grabberStatusInterval);
+    
+    grabberStatusInterval = setInterval(async () => {
+        await loadGrabberStatus();
+    }, 2000);
+}
+
+function stopGrabberStatusPolling() {
+    if (grabberStatusInterval) {
+        clearInterval(grabberStatusInterval);
+        grabberStatusInterval = null;
+    }
+}
+
+async function loadGrabberStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/grabber/status`, {
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            const status = await response.json();
+            updateGrabberStatus(status);
+        } else {
+            // Show demo status
+            updateGrabberStatus({
+                status: 'stopped',
+                progress: 0,
+                domains_generated: 0,
+                eta_seconds: null
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load grabber status:', error);
+    }
+}
+
+function updateGrabberStatus(status) {
+    updateElementText('grabberStatus', translateGrabberStatus(status.status));
+    updateElementText('grabberProgress', `${status.progress}%`);
+    updateElementText('domainsGenerated', status.domains_generated);
+    updateElementText('grabberETA', status.eta_seconds ? formatDuration(status.eta_seconds) : '--:--:--');
+    
+    const progressBar = document.getElementById('grabberProgressBar');
+    if (progressBar) {
+        progressBar.style.width = `${status.progress}%`;
+    }
+    
+    if (status.status === 'running') {
+        showGrabberControls('running');
+    } else {
+        showGrabberControls('stopped');
+    }
+}
+
+function translateGrabberStatus(status) {
+    const translations = {
+        'stopped': 'Arrêté',
+        'running': 'En cours',
+        'completed': 'Terminé',
+        'error': 'Erreur'
+    };
+    return translations[status] || status;
+}
+
+// Configuration functionality (extended from settings)
+function initConfigurationTab() {
+    document.getElementById('telegramForm')?.addEventListener('submit', handleTelegramSettings);
+    document.getElementById('testTelegramBtn')?.addEventListener('click', testTelegram);
+    
+    loadTelegramSettings();
+}
+
+async function handleTelegramSettings(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    const settings = {
+        bot_token: formData.get('botToken'),
+        chat_id: formData.get('chatId'),
+        enabled: true
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/settings/telegram`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        if (response.ok) {
+            alert('Paramètres Telegram sauvegardés !');
+        }
+    } catch (error) {
+        console.error('Failed to save Telegram settings:', error);
+    }
+}
+
+async function testTelegram() {
+    try {
+        const response = await fetch(`${API_BASE}/notifications/test/telegram`, {
+            method: 'POST',
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            alert('Notification test envoyée !');
+        } else {
+            alert('Erreur lors de l\'envoi de la notification test.');
+        }
+    } catch (error) {
+        console.error('Failed to test Telegram:', error);
+        alert('Erreur lors du test Telegram.');
+    }
+}
+
+async function loadTelegramSettings() {
+    try {
+        const response = await fetch(`${API_BASE}/settings/telegram`, {
+            headers: {'Authorization': `Bearer ${authToken}`}
+        });
+        
+        if (response.ok) {
+            const settings = await response.json();
+            
+            if (settings.chat_id) {
+                document.getElementById('telegramChatId').value = settings.chat_id;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load Telegram settings:', error);
+    }
+}
+
+// Utility functions
+function updateElementText(elementId, text) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.textContent = text;
+    }
+}
+
+function formatDuration(seconds) {
+    if (!seconds || seconds < 0) return '00:00:00';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Initialize French panel functionality when switching tabs
+const originalSwitchTab = switchTab;
+switchTab = function(tabName) {
+    originalSwitchTab(tabName);
+    
+    // Initialize tab-specific functionality
+    switch (tabName) {
+        case 'statistiques':
+            setTimeout(initStatistiquesTab, 100);
+            break;
+        case 'resultats':
+            setTimeout(initResultatsTab, 100);
+            break;
+        case 'domaines':
+            setTimeout(initDomainesTab, 100);
+            break;
+        case 'grabber':
+            setTimeout(initGrabberTab, 100);
+            break;
+        case 'configuration':
+            setTimeout(initConfigurationTab, 100);
+            break;
+    }
+};

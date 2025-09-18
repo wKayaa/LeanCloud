@@ -174,6 +174,38 @@ class EnhancedConnectionManager:
         logger.debug("Broadcasted to all connections", 
                     recipients=len(self.active_connections) - len(disconnected))
     
+    async def broadcast_telemetry(self, scan_id: str, telemetry_data: Dict[str, Any]):
+        """Broadcast telemetry data for a specific scan"""
+        message = {
+            "type": WSEventType.SCAN_PROGRESS.value,
+            "scan_id": scan_id,
+            "data": telemetry_data,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_scan_subscribers(scan_id, message)
+    
+    async def broadcast_dashboard_stats(self, stats_data: Dict[str, Any]):
+        """Broadcast dashboard statistics"""
+        message = {
+            "type": WSEventType.DASHBOARD_STATS.value,
+            "data": stats_data,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_dashboard_subscribers(message)
+    
+    async def broadcast_provider_hit(self, scan_id: str, provider: str, hit_data: Dict[str, Any]):
+        """Broadcast provider-specific hit"""
+        message = {
+            "type": WSEventType.SCAN_HIT.value,
+            "scan_id": scan_id,
+            "data": {
+                "provider": provider,
+                "hit": hit_data
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await self.broadcast_to_scan_subscribers(scan_id, message)
+    
     async def _start_redis_listeners(self):
         """Start Redis pub/sub listeners"""
         try:

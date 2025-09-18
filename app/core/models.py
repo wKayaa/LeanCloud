@@ -14,6 +14,12 @@ class ScanStatus(str, Enum):
     STOPPED = "stopped"
 
 
+class ProviderStatus(str, Enum):
+    VALID = "valid"
+    INVALID = "invalid"
+    UNKNOWN = "unknown"
+
+
 class ModuleType(str, Enum):
     AWS = "aws"
     SENDGRID = "sendgrid"
@@ -23,6 +29,8 @@ class ModuleType(str, Enum):
     DOCKER = "docker"
     K8S = "k8s"
     STRIPE = "stripe"
+    SPARKPOST = "sparkpost"
+    BREVO = "brevo"
     GENERIC = "generic"
 
 
@@ -72,6 +80,19 @@ class Finding(BaseModel):
     quotas: Dict[str, Any] = Field(default={})  # Service quotas/limits
     verified_identities: List[str] = Field(default=[])  # Verified identities
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class Hit(BaseModel):
+    """Enhanced hit model for French panel UI"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    discovered_at: datetime = Field(default_factory=datetime.now)
+    host: str
+    path: str
+    url: str
+    service: str  # Provider service name
+    validated: bool = False  # Whether hit has been validated
+    provider_payload: Dict[str, Any] = Field(default={})  # Masked provider data
+    evidence_ref: Optional[str] = None  # Reference to full evidence
 
 
 class ScanResult(BaseModel):
@@ -138,6 +159,50 @@ class ScanResourceUsage(BaseModel):
     net_mbps_in: float
     net_mbps_out: float
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class TelemetrySnapshot(BaseModel):
+    """Persistent telemetry snapshot for UI reload support"""
+    scan_id: str
+    processed_urls: int = 0
+    total_urls: int = 0
+    progress_percent: float = 0.0
+    hits_count: int = 0
+    # Provider-specific hit counts
+    provider_counts: Dict[str, int] = Field(default={
+        "aws": 0,
+        "sendgrid": 0, 
+        "sparkpost": 0,
+        "twilio": 0,
+        "brevo": 0,
+        "mailgun": 0
+    })
+    # Performance metrics
+    urls_per_sec: float = 0.0
+    https_reqs_per_sec: float = 0.0
+    precision_percent: float = 0.0
+    duration_seconds: int = 0
+    eta_seconds: Optional[int] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
+class DomainList(BaseModel):
+    """Domain list model for Gestion des Domaines"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    filename: str
+    size: int  # File size in bytes
+    domain_count: int
+    created_at: datetime = Field(default_factory=datetime.now)
+    source: str = "upload"  # upload, grabber, etc.
+
+
+class GrabberStatus(BaseModel):
+    """Grabber worker status"""
+    status: str  # running, stopped, idle
+    progress: int = 0  # Percentage complete
+    domains_generated: int = 0
+    current_seed: Optional[str] = None
+    eta_seconds: Optional[int] = None
 
 
 class ConfigModel(BaseModel):
@@ -220,6 +285,22 @@ class HitExportRequest(BaseModel):
 
 class ScanControlRequest(BaseModel):
     action: str = Field(pattern="^(start|pause|resume|stop)$")
+
+
+class TelegramSettings(BaseModel):
+    """Telegram settings model"""
+    bot_token: str
+    chat_id: str
+    enabled: bool = True
+
+
+class ResultsFilterRequest(BaseModel):
+    """Results filtering request"""
+    service: Optional[str] = None  # Filter by service
+    validated: Optional[bool] = None  # Filter by validation status
+    sort: str = Field(default="date_desc", pattern="^(date_asc|date_desc)$")
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=50, ge=1, le=1000)
 
 
 class WebSocketMessage(BaseModel):
