@@ -1340,3 +1340,490 @@ textarea:focus-visible {
 .text-right { text-align: right; }
 .hidden { display: none !important; }
 .visible { display: block !important; }
+
+/* French Panel Specific Styles */
+
+/* Statistiques du Scan Page */
+.scan-stats-container {
+    padding: 2rem;
+}
+
+.stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.scan-controls {
+    display: flex;
+    gap: 1rem;
+}
+
+.cracker-control-section {
+    margin-bottom: 2rem;
+}
+
+.control-card {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.scan-status-display {
+    display: flex;
+    align-items: center;
+    gap: 1rem;  
+    margin-bottom: 1.5rem;
+}
+
+.status-indicator {
+    font-size: 2rem;
+    animation: pulse 2s infinite;
+}
+
+.status-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.status-label {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.status-message {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.system-info {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.info-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.info-value {
+    color: var(--cyan-neon);
+    font-weight: 600;
+}
+
+.progress-section {
+    margin-bottom: 2rem;
+}
+
+.progress-card {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.progress-percentage {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--cyan-neon);
+}
+
+.progress-bar-container {
+    margin-bottom: 1.5rem;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--gradient-primary);
+    transition: width 0.3s ease;
+}
+
+.progress-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.progress-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.providers-section h3 {
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+.provider-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.provider-tile {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.provider-tile:hover {
+    border-color: var(--border-accent);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+}
+
+.provider-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.provider-name {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+.provider-count {
+    color: var(--cyan-neon);
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+/* Résultats des Hits Page */
+.results-container {
+    padding: 2rem;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.results-counters {
+    display: flex;
+    gap: 2rem;
+}
+
+.counter-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.counter-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.counter-value {
+    color: var(--cyan-neon);
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.results-filters {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 150px;
+}
+
+.filter-group label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.filter-group select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.results-table {
+    width: 100%;
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    overflow: hidden;
+    border-collapse: collapse;
+}
+
+.results-table th {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.results-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+}
+
+.results-table tr:hover {
+    background: rgba(124, 58, 237, 0.1);
+}
+
+.no-results {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-muted);
+}
+
+.no-results-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+/* Gestion des Domaines Page */
+.domains-container {
+    padding: 2rem;
+}
+
+.domains-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.domains-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.upload-section {
+    margin-bottom: 2rem;
+}
+
+.upload-card {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.upload-form {
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.upload-notes {
+    border-top: 1px solid var(--border-primary);
+    padding-top: 1rem;
+    margin-top: 1rem;
+}
+
+.upload-notes h4 {
+    color: var(--info);
+    margin-bottom: 0.5rem;
+}
+
+.upload-notes ul {
+    color: var(--text-secondary);
+    padding-left: 1.5rem;
+}
+
+.files-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.file-item {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.3s ease;
+}
+
+.file-item:hover {
+    border-color: var(--border-accent);
+    transform: translateY(-2px);
+}
+
+.file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.file-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.file-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.file-info {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Grabber Page */
+.grabber-container {
+    padding: 2rem;
+}
+
+.grabber-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.grabber-controls {
+    display: flex;
+    gap: 1rem;
+}
+
+.grabber-config {
+    margin-bottom: 2rem;
+}
+
+.config-card {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.config-form {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.grabber-status {
+    margin-bottom: 2rem;
+}
+
+.status-card {
+    background: var(--gradient-card);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.status-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-label {
+    color: var(--text-secondary);
+}
+
+.status-value {
+    color: var(--cyan-neon);
+    font-weight: 600;
+}
+
+/* Responsive Design for French Panels */
+@media (max-width: 768px) {
+    .stats-header,
+    .results-header,
+    .domains-header,
+    .grabber-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: stretch;
+    }
+    
+    .results-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .filter-actions {
+        margin-left: 0;
+        justify-content: center;
+    }
+    
+    .provider-tiles {
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    }
+    
+    .results-counters {
+        justify-content: center;
+    }
+    
+    .system-info {
+        justify-content: center;
+    }
+}

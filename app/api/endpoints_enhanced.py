@@ -27,6 +27,11 @@ from ..core.models import (
     WSEventType
 )
 
+# Import new API routers
+from .results import router as results_router
+from .grabber import router as grabber_router  
+from .settings import router as settings_router
+
 logger = structlog.get_logger()
 
 router = APIRouter()
@@ -719,3 +724,9 @@ async def update_settings(updates: Dict[str, Any]) -> Dict[str, str]:
     except Exception as e:
         logger.error("Failed to update settings", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Include sub-routers for French panel features
+router.include_router(results_router, prefix="", tags=["results"])
+router.include_router(grabber_router, prefix="", tags=["grabber"]) 
+router.include_router(settings_router, prefix="", tags=["settings"])
