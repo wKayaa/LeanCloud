@@ -13,8 +13,9 @@ logger = structlog.get_logger()
 class RedisManager:
     """Redis manager for async operations with graceful degradation"""
     
-    def __init__(self, redis_url: str):
+    def __init__(self, redis_url: str, use_redis: bool = True):
         self.redis_url = redis_url
+        self.use_redis = use_redis
         self.pool: Optional[ConnectionPool] = None
         self.client: Optional[redis.Redis] = None
         self.pubsub: Optional[redis.client.PubSub] = None
@@ -22,8 +23,15 @@ class RedisManager:
         self._last_health_check = 0
         self._health_check_interval = 30  # seconds
         
+        if not use_redis:
+            logger.info("Redis manager initialized in disabled mode")
+        
     async def initialize(self):
         """Initialize Redis connection with retry logic"""
+        if not self.use_redis:
+            logger.info("Redis initialization skipped - USE_REDIS=false")
+            return
+            
         try:
             self.pool = ConnectionPool.from_url(
                 self.redis_url,
@@ -50,6 +58,9 @@ class RedisManager:
     
     async def is_healthy(self) -> bool:
         """Check if Redis connection is healthy"""
+        if not self.use_redis:
+            return False
+            
         current_time = asyncio.get_event_loop().time()
         
         # Check if we need to refresh health status
@@ -80,6 +91,8 @@ class RedisManager:
     # Cache operations
     async def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:
         """Set a key-value pair with optional expiration"""
+        if not self.use_redis or not await self.is_healthy():
+            return False
         try:
             serialized = json.dumps(value) if not isinstance(value, str) else value
             return await self.client.set(key, serialized, ex=ex)
@@ -89,6 +102,8 @@ class RedisManager:
     
     async def get(self, key: str) -> Optional[Any]:
         """Get value by key"""
+        if not self.use_redis or not await self.is_healthy():
+            return None
         try:
             value = await self.client.get(key)
             if value is None:
@@ -371,10 +386,16 @@ class RedisManager:
 redis_manager: Optional[RedisManager] = None
 
 
-async def init_redis(redis_url: str):
-    """Initialize Redis connection"""
+async def init_redis(redis_url: str, use_redis: bool = True):
+    """Initialize Redis connection with graceful degradation support"""
     global redis_manager
-    redis_manager = RedisManager(redis_url)
+    
+    if not use_redis:
+        logger.info("Redis disabled - running in degraded mode", use_redis=use_redis)
+        redis_manager = RedisManager(redis_url, use_redis=False)
+        return
+    
+    redis_manager = RedisManager(redis_url, use_redis=True)
     await redis_manager.initialize()
 
 
@@ -389,5 +410,6 @@ async def close_redis():
 def get_redis() -> RedisManager:
     """Get Redis manager instance"""
     if not redis_manager:
-        raise RuntimeError("Redis manager not initialized")
+        # Return a dummy Redis manager for graceful degradation
+        return RedisManager("redis://localhost:6379", use_redis=False)
     return redis_manager
