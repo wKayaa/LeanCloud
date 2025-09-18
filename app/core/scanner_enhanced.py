@@ -164,7 +164,7 @@ class StatsManager:
         self.errors_count += errors
     
     async def _broadcast_stats(self):
-        """Broadcast statistics via Redis pub/sub"""
+        """Broadcast statistics via Redis pub/sub with fallback"""
         try:
             from .redis_manager import get_redis
             redis = get_redis()
@@ -188,10 +188,11 @@ class StatsManager:
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
+            # This will automatically use fallback if Redis is unavailable
             await redis.publish(f"scan_stats:{self.scan_id}", stats)
             
         except Exception as e:
-            logger.warning("Failed to broadcast stats", scan_id=self.scan_id, error=str(e))
+            logger.debug("Failed to broadcast stats", scan_id=self.scan_id, error=str(e))
 
 
 class EnhancedScanner:
@@ -290,7 +291,7 @@ class EnhancedScanner:
             from .database import get_db_session, ScanDB
             async with get_db_session() as session:
                 db_scan = ScanDB(
-                    id=scan_id,
+                    id=scan_id,  # Already a string UUID
                     crack_id=crack_id,
                     status=ScanStatus.QUEUED.value,
                     targets=scan_request.targets,
@@ -873,7 +874,7 @@ class EnhancedScanner:
         return evidence[:visible_chars] + "*" * masked_length + evidence[-visible_chars:]
     
     async def _broadcast_scan_event(self, scan_id: str, event_type: WSEventType, data: Dict[str, Any]):
-        """Broadcast scan event via Redis pub/sub"""
+        """Broadcast scan event via Redis pub/sub with fallback"""
         try:
             from .redis_manager import get_redis
             redis = get_redis()
@@ -883,6 +884,7 @@ class EnhancedScanner:
                 "data": data,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
+            # This will automatically use fallback if Redis is unavailable
             await redis.publish(f"scan_events:{scan_id}", message)
         except Exception as e:
             logger.warning("Failed to broadcast event", scan_id=scan_id, 

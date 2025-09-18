@@ -1,8 +1,9 @@
-"""Redis manager for caching, queuing, and pub/sub"""
+"""Redis manager for caching, queuing, and pub/sub with in-process fallback"""
 
 import asyncio
 import json
-from typing import Optional, Dict, Any, List
+import time
+from typing import Optional, Dict, Any, List, Set, Callable
 import redis.asyncio as redis
 from redis.asyncio import ConnectionPool
 import structlog
@@ -10,8 +11,133 @@ import structlog
 logger = structlog.get_logger()
 
 
+class InProcessEventBus:
+    """In-memory event bus for when Redis is unavailable"""
+    
+    def __init__(self):
+        self.channels: Dict[str, Set[Callable]] = {}
+        self.pattern_channels: Dict[str, Set[Callable]] = {}
+    
+    async def publish(self, channel: str, message: Any) -> int:
+        """Publish message to channel"""
+        subscriber_count = 0
+        
+        # Direct channel subscriptions
+        if channel in self.channels:
+            for callback in self.channels[channel]:
+                try:
+                    await callback(channel, message)
+                    subscriber_count += 1
+                except Exception as e:
+                    logger.warning("Failed to deliver in-process message", 
+                                 channel=channel, error=str(e))
+        
+        # Pattern subscriptions
+        for pattern, callbacks in self.pattern_channels.items():
+            if self._match_pattern(pattern, channel):
+                for callback in callbacks:
+                    try:
+                        await callback(channel, message)
+                        subscriber_count += 1
+                    except Exception as e:
+                        logger.warning("Failed to deliver in-process pattern message",
+                                     pattern=pattern, channel=channel, error=str(e))
+        
+        return subscriber_count
+    
+    def subscribe(self, channel: str, callback: Callable):
+        """Subscribe to a channel"""
+        if channel not in self.channels:
+            self.channels[channel] = set()
+        self.channels[channel].add(callback)
+    
+    def psubscribe(self, pattern: str, callback: Callable):
+        """Subscribe to a pattern"""
+        if pattern not in self.pattern_channels:
+            self.pattern_channels[pattern] = set()
+        self.pattern_channels[pattern].add(callback)
+    
+    def unsubscribe(self, channel: str, callback: Callable):
+        """Unsubscribe from a channel"""
+        if channel in self.channels:
+            self.channels[channel].discard(callback)
+            if not self.channels[channel]:
+                del self.channels[channel]
+    
+    def punsubscribe(self, pattern: str, callback: Callable):
+        """Unsubscribe from a pattern"""
+        if pattern in self.pattern_channels:
+            self.pattern_channels[pattern].discard(callback)
+            if not self.pattern_channels[pattern]:
+                del self.pattern_channels[pattern]
+    
+    def _match_pattern(self, pattern: str, channel: str) -> bool:
+        """Simple pattern matching (supports * at end)"""
+        if pattern.endswith('*'):
+            return channel.startswith(pattern[:-1])
+        return pattern == channel
+    
+    def get_subscriber_count(self, channel: str) -> int:
+        """Get subscriber count for a channel"""
+        count = len(self.channels.get(channel, set()))
+        
+        # Add pattern subscribers
+        for pattern in self.pattern_channels:
+            if self._match_pattern(pattern, channel):
+                count += len(self.pattern_channels[pattern])
+        
+        return count
+
+
+class MockPubSub:
+    """Mock PubSub that uses in-process event bus"""
+    
+    def __init__(self, event_bus: InProcessEventBus, channels: List[str]):
+        self.event_bus = event_bus
+        self.channels = channels
+        self.closed = False
+        self.message_queue = asyncio.Queue()
+        self.callbacks = {}
+    
+    async def subscribe(self, *channels: str):
+        """Subscribe to additional channels"""
+        for channel in channels:
+            if channel not in self.channels:
+                self.channels.append(channel)
+            
+            async def callback(ch, msg):
+                if not self.closed:
+                    await self.message_queue.put({
+                        'type': 'message',
+                        'channel': ch,
+                        'data': json.dumps(msg) if not isinstance(msg, str) else msg
+                    })
+            
+            self.callbacks[channel] = callback
+            self.event_bus.subscribe(channel, callback)
+    
+    async def listen(self):
+        """Listen for messages"""
+        # Auto-subscribe to initial channels
+        if not self.callbacks:
+            await self.subscribe(*self.channels)
+        
+        while not self.closed:
+            try:
+                message = await asyncio.wait_for(self.message_queue.get(), timeout=1.0)
+                yield message
+            except asyncio.TimeoutError:
+                continue
+    
+    async def close(self):
+        """Close the pubsub"""
+        self.closed = True
+        for channel, callback in self.callbacks.items():
+            self.event_bus.unsubscribe(channel, callback)
+
+
 class RedisManager:
-    """Redis manager for async operations"""
+    """Redis manager for async operations with in-process fallback"""
     
     def __init__(self, redis_url: str):
         self.redis_url = redis_url
@@ -19,25 +145,77 @@ class RedisManager:
         self.client: Optional[redis.Redis] = None
         self.pubsub: Optional[redis.client.PubSub] = None
         
+        # Fallback event bus
+        self.fallback_bus = InProcessEventBus()
+        self.is_redis_available = False
+        self.last_redis_check = 0.0
+        self.redis_retry_interval = 30.0  # Check Redis availability every 30 seconds
+        
+        # In-memory cache for when Redis is down
+        self.memory_cache: Dict[str, Any] = {}
+        self.cache_timestamps: Dict[str, float] = {}
+        
     async def initialize(self):
-        """Initialize Redis connection"""
+        """Initialize Redis connection with quiet error handling"""
         try:
             self.pool = ConnectionPool.from_url(
                 self.redis_url,
                 max_connections=20,
                 decode_responses=True,
-                health_check_interval=30
+                health_check_interval=30,
+                socket_connect_timeout=5,  # Fail fast
+                socket_timeout=5
             )
             
             self.client = redis.Redis(connection_pool=self.pool)
             
             # Test connection
-            await self.client.ping()
-            logger.info("Redis connection initialized", url=self.redis_url)
+            await asyncio.wait_for(self.client.ping(), timeout=3.0)
+            self.is_redis_available = True
+            logger.info("Redis connection initialized", url=self._safe_url())
             
         except Exception as e:
-            logger.error("Failed to initialize Redis", error=str(e))
-            raise
+            self.is_redis_available = False
+            self.last_redis_check = time.time()
+            # Only log once at startup, then use periodic health checks
+            logger.warning("Redis unavailable, using in-process fallback", 
+                         error=str(e), url=self._safe_url())
+    
+    def _safe_url(self) -> str:
+        """Return Redis URL without credentials for logging"""
+        try:
+            if '://' in self.redis_url:
+                scheme, rest = self.redis_url.split('://', 1)
+                if '@' in rest:
+                    _, host_part = rest.split('@', 1)
+                    return f"{scheme}://***@{host_part}"
+            return self.redis_url
+        except:
+            return "redis://***"
+    
+    async def _check_redis_health(self) -> bool:
+        """Periodically check Redis health with backoff"""
+        now = time.time()
+        if now - self.last_redis_check < self.redis_retry_interval:
+            return self.is_redis_available
+        
+        if not self.is_redis_available:
+            try:
+                if not self.client:
+                    await self.initialize()
+                else:
+                    await asyncio.wait_for(self.client.ping(), timeout=2.0)
+                
+                self.is_redis_available = True
+                logger.info("Redis connection restored")
+                
+            except Exception:
+                # Quiet failure - don't spam logs
+                self.is_redis_available = False
+            
+            self.last_redis_check = now
+        
+        return self.is_redis_available
     
     async def close(self):
         """Close Redis connection"""
@@ -49,31 +227,49 @@ class RedisManager:
             await self.pool.disconnect()
         logger.info("Redis connection closed")
     
-    # Cache operations
+    # Cache operations with fallback
     async def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:
         """Set a key-value pair with optional expiration"""
         try:
-            serialized = json.dumps(value) if not isinstance(value, str) else value
-            return await self.client.set(key, serialized, ex=ex)
+            if await self._check_redis_health():
+                serialized = json.dumps(value) if not isinstance(value, str) else value
+                return await self.client.set(key, serialized, ex=ex)
         except Exception as e:
-            logger.error("Redis SET failed", key=key, error=str(e))
-            return False
+            logger.debug("Redis SET failed, using memory cache", key=key, error=str(e))
+        
+        # Fallback to memory cache
+        self.memory_cache[key] = value
+        if ex:
+            self.cache_timestamps[key] = time.time() + ex
+        return True
     
     async def get(self, key: str) -> Optional[Any]:
         """Get value by key"""
         try:
-            value = await self.client.get(key)
-            if value is None:
-                return None
-            
-            # Try to deserialize as JSON, fallback to string
-            try:
-                return json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                return value
+            if await self._check_redis_health():
+                value = await self.client.get(key)
+                if value is None:
+                    return None
+                
+                # Try to deserialize as JSON, fallback to string
+                try:
+                    return json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    return value
         except Exception as e:
-            logger.error("Redis GET failed", key=key, error=str(e))
-            return None
+            logger.debug("Redis GET failed, using memory cache", key=key, error=str(e))
+        
+        # Fallback to memory cache
+        if key in self.memory_cache:
+            # Check expiration
+            if key in self.cache_timestamps:
+                if time.time() > self.cache_timestamps[key]:
+                    self.memory_cache.pop(key, None)
+                    self.cache_timestamps.pop(key, None)
+                    return None
+            return self.memory_cache[key]
+        
+        return None
     
     async def delete(self, key: str) -> bool:
         """Delete a key"""
@@ -223,49 +419,98 @@ class RedisManager:
             logger.error("Redis SISMEMBER failed", key=key, error=str(e))
             return False
     
-    # Pub/Sub operations
+    # Pub/Sub operations with fallback
     async def publish(self, channel: str, message: Any) -> int:
-        """Publish message to channel"""
+        """Publish message to channel with fallback"""
         try:
-            serialized = json.dumps(message) if not isinstance(message, str) else message
-            return await self.client.publish(channel, serialized)
+            if await self._check_redis_health():
+                serialized = json.dumps(message) if not isinstance(message, str) else message
+                return await self.client.publish(channel, serialized)
         except Exception as e:
-            logger.error("Redis PUBLISH failed", channel=channel, error=str(e))
-            return 0
+            logger.debug("Redis publish failed, using fallback", channel=channel, error=str(e))
+        
+        # Fallback to in-process bus
+        return await self.fallback_bus.publish(channel, message)
+    
+    def subscribe_fallback(self, channel: str, callback: Callable):
+        """Subscribe to channel using fallback bus"""
+        self.fallback_bus.subscribe(channel, callback)
+    
+    def psubscribe_fallback(self, pattern: str, callback: Callable):
+        """Subscribe to pattern using fallback bus"""
+        self.fallback_bus.psubscribe(pattern, callback)
+    
+    def unsubscribe_fallback(self, channel: str, callback: Callable):
+        """Unsubscribe from fallback bus"""
+        self.fallback_bus.unsubscribe(channel, callback)
+    
+    async def subscribe_with_fallback(self, *channels: str):
+        """Subscribe to channels with Redis or fallback"""
+        try:
+            if await self._check_redis_health():
+                pubsub = self.client.pubsub()
+                await pubsub.subscribe(*channels)
+                return pubsub
+        except Exception as e:
+            logger.debug("Redis subscribe failed", channels=channels, error=str(e))
+        
+        # Return a mock pubsub that uses fallback
+        return MockPubSub(self.fallback_bus, list(channels))
     
     async def subscribe(self, *channels: str) -> redis.client.PubSub:
-        """Subscribe to channels"""
-        try:
-            pubsub = self.client.pubsub()
-            await pubsub.subscribe(*channels)
-            return pubsub
-        except Exception as e:
-            logger.error("Redis SUBSCRIBE failed", channels=channels, error=str(e))
-            raise
+        """Subscribe to channels (Redis only - legacy method)"""
+        if not await self._check_redis_health():
+            raise RuntimeError("Redis not available")
+        
+        pubsub = self.client.pubsub()
+        await pubsub.subscribe(*channels)
+        return pubsub
     
-    # Rate limiting
+    # Rate limiting with fallback
     async def rate_limit(self, key: str, limit: int, window: int) -> bool:
-        """Check rate limit using sliding window"""
+        """Check rate limit using sliding window with fallback"""
         try:
-            current_time = int(asyncio.get_event_loop().time())
-            pipe = self.client.pipeline()
-            
-            # Remove old entries
-            pipe.zremrangebyscore(key, 0, current_time - window)
-            # Add current request
-            pipe.zadd(key, {str(current_time): current_time})
-            # Count requests in window
-            pipe.zcount(key, current_time - window, current_time)
-            # Set expiration
-            pipe.expire(key, window)
-            
-            results = await pipe.execute()
-            count = results[2]
-            
-            return count <= limit
+            if await self._check_redis_health():
+                current_time = int(time.time())
+                pipe = self.client.pipeline()
+                
+                # Remove old entries
+                pipe.zremrangebyscore(key, 0, current_time - window)
+                # Add current request
+                pipe.zadd(key, {str(current_time): current_time})
+                # Count requests in window
+                pipe.zcount(key, current_time - window, current_time)
+                # Set expiration
+                pipe.expire(key, window)
+                
+                results = await pipe.execute()
+                count = results[2]
+                
+                return count <= limit
         except Exception as e:
-            logger.error("Redis rate limit failed", key=key, error=str(e))
-            return True  # Allow on error
+            logger.debug("Redis rate limit failed, using memory fallback", key=key, error=str(e))
+        
+        # Fallback to memory-based rate limiting
+        if not hasattr(self, 'rate_limit_memory'):
+            self.rate_limit_memory = {}
+        
+        current_time = time.time()
+        if key not in self.rate_limit_memory:
+            self.rate_limit_memory[key] = []
+        
+        # Clean old entries
+        self.rate_limit_memory[key] = [
+            t for t in self.rate_limit_memory[key] 
+            if t > current_time - window
+        ]
+        
+        # Check limit
+        if len(self.rate_limit_memory[key]) >= limit:
+            return False
+        
+        # Add current request
+        self.rate_limit_memory[key].append(current_time)
+        return True
     
     # Atomic operations
     async def incr(self, key: str, amount: int = 1) -> int:

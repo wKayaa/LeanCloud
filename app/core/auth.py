@@ -8,8 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from .models import User
 from .config import config_manager
 
-
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)  # Make it optional
 
 
 class AuthManager:
@@ -126,8 +125,26 @@ class AuthManager:
         return config_manager.get_config().first_run
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
+def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict:
     """FastAPI dependency to get current authenticated user"""
+    config = config_manager.get_config()
+    
+    # If auth is disabled, return a default user
+    if not config.auth_required:
+        return {
+            "sub": "anonymous",
+            "username": "anonymous", 
+            "role": "admin",
+            "exp": (datetime.now() + timedelta(hours=1)).timestamp()
+        }
+    
+    # Normal auth flow
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+    
     payload = auth_manager.verify_token(credentials.credentials)
     return payload
 

@@ -1,4 +1,4 @@
-auth_required: true
+auth_required: false
 default_patterns:
 - description: AWS Access Key ID
   name: AWS Access Key

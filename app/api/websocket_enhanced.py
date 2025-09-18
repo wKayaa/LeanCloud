@@ -175,32 +175,79 @@ class EnhancedConnectionManager:
                     recipients=len(self.active_connections) - len(disconnected))
     
     async def _start_redis_listeners(self):
-        """Start Redis pub/sub listeners"""
+        """Start Redis pub/sub listeners with fallback"""
         try:
+            from .redis_manager import get_redis
             redis = get_redis()
             
-            # Listen for scan events
-            scan_events_task = asyncio.create_task(
-                self._listen_scan_events(redis)
-            )
-            self.redis_listeners["scan_events"] = scan_events_task
+            # Try Redis first, fall back to in-process bus
+            try:
+                # Listen for scan events
+                scan_events_pubsub = await redis.subscribe_with_fallback("scan_events:*")
+                scan_events_task = asyncio.create_task(
+                    self._listen_scan_events(scan_events_pubsub)
+                )
+                self.redis_listeners["scan_events"] = scan_events_task
+                
+                # Listen for dashboard stats
+                dashboard_stats_pubsub = await redis.subscribe_with_fallback("dashboard_stats")
+                dashboard_stats_task = asyncio.create_task(
+                    self._listen_dashboard_stats(dashboard_stats_pubsub)
+                )
+                self.redis_listeners["dashboard_stats"] = dashboard_stats_task
+                
+                logger.info("Event listeners started (Redis or fallback)")
+                
+            except Exception as e:
+                logger.info("Using in-process event bus for WebSocket", error=str(e))
+                
+                # Set up direct callbacks to in-process event bus
+                redis.subscribe_fallback("scan_events:*", self._handle_scan_event_fallback)
+                redis.subscribe_fallback("dashboard_stats", self._handle_dashboard_event_fallback)
+                
+        except Exception as e:
+            logger.error("Failed to start event listeners", error=str(e))
+    
+    async def _handle_scan_event_fallback(self, channel: str, message: Any):
+        """Handle scan events from in-process bus"""
+        try:
+            # Extract scan_id from channel
+            scan_id = channel.split(":")[-1]
             
-            # Listen for dashboard stats
-            dashboard_stats_task = asyncio.create_task(
-                self._listen_dashboard_stats(redis)
-            )
-            self.redis_listeners["dashboard_stats"] = dashboard_stats_task
+            # Ensure message is properly formatted
+            if isinstance(message, dict):
+                event_data = message
+            else:
+                event_data = json.loads(message) if isinstance(message, str) else message
             
-            logger.info("Redis listeners started")
+            # Broadcast to scan subscribers
+            await self.broadcast_to_scan_subscribers(scan_id, event_data)
             
         except Exception as e:
-            logger.error("Failed to start Redis listeners", error=str(e))
+            logger.error("Failed to process fallback scan event", error=str(e))
     
-    async def _listen_scan_events(self, redis):
-        """Listen for scan events from Redis"""
+    async def _handle_dashboard_event_fallback(self, channel: str, message: Any):
+        """Handle dashboard events from in-process bus"""
         try:
-            pubsub = await redis.subscribe("scan_events:*")
+            # Ensure message is properly formatted
+            if isinstance(message, dict):
+                stats_data = message
+            else:
+                stats_data = json.loads(message) if isinstance(message, str) else message
             
+            # Add event type if missing
+            if "type" not in stats_data:
+                stats_data["type"] = WSEventType.DASHBOARD_STATS.value
+            
+            # Broadcast to dashboard subscribers
+            await self.broadcast_to_dashboard_subscribers(stats_data)
+            
+        except Exception as e:
+            logger.error("Failed to process fallback dashboard event", error=str(e))
+    
+    async def _listen_scan_events(self, pubsub):
+        """Listen for scan events from Redis or fallback"""
+        try:
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     try:
@@ -209,7 +256,10 @@ class EnhancedConnectionManager:
                         scan_id = channel.split(":")[-1]
                         
                         # Parse event data
-                        event_data = json.loads(message["data"])
+                        if isinstance(message["data"], str):
+                            event_data = json.loads(message["data"])
+                        else:
+                            event_data = message["data"]
                         
                         # Broadcast to scan subscribers
                         await self.broadcast_to_scan_subscribers(scan_id, event_data)
@@ -220,19 +270,21 @@ class EnhancedConnectionManager:
         except Exception as e:
             logger.error("Scan events listener failed", error=str(e))
     
-    async def _listen_dashboard_stats(self, redis):
-        """Listen for dashboard stats from Redis"""
+    async def _listen_dashboard_stats(self, pubsub):
+        """Listen for dashboard stats from Redis or fallback"""
         try:
-            pubsub = await redis.subscribe("dashboard_stats")
-            
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     try:
                         # Parse stats data
-                        stats_data = json.loads(message["data"])
+                        if isinstance(message["data"], str):
+                            stats_data = json.loads(message["data"])
+                        else:
+                            stats_data = message["data"]
                         
-                        # Add event type
-                        stats_data["type"] = WSEventType.DASHBOARD_STATS.value
+                        # Add event type if missing
+                        if "type" not in stats_data:
+                            stats_data["type"] = WSEventType.DASHBOARD_STATS.value
                         
                         # Broadcast to dashboard subscribers
                         await self.broadcast_to_dashboard_subscribers(stats_data)

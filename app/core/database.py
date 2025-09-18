@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
+import contextlib
 import uuid
 
 from sqlalchemy import (
@@ -12,8 +13,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 import structlog
 
 logger = structlog.get_logger()
@@ -24,7 +23,7 @@ class ScanDB(Base):
     """Database model for scans"""
     __tablename__ = "scans"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True)  # UUID as string
     crack_id = Column(String(32), unique=True, nullable=False, index=True)
     status = Column(String(20), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
@@ -80,8 +79,8 @@ class FindingDB(Base):
     """Database model for findings/hits"""
     __tablename__ = "findings"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True)  # UUID as string
+    scan_id = Column(String(36), ForeignKey("scans.id"), nullable=False, index=True)
     crack_id = Column(String(32), nullable=False, index=True)
     service = Column(String(50), nullable=False, index=True)
     pattern_id = Column(String(100), nullable=False)
@@ -155,8 +154,8 @@ class EventDB(Base):
     """Database model for events (WebSocket and notifications)"""
     __tablename__ = "events"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True, index=True)
+    id = Column(String(36), primary_key=True)  # UUID as string
+    scan_id = Column(String(36), ForeignKey("scans.id"), nullable=True, index=True)
     event_type = Column(String(50), nullable=False, index=True)
     data = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
@@ -237,8 +236,9 @@ async def init_database(database_url: str = "sqlite+aiosqlite:///./httpx_scanner
         raise
 
 
-async def get_db_session() -> AsyncSession:
-    """Get database session"""
+@contextlib.asynccontextmanager
+async def get_db_session():
+    """Get database session as async context manager"""
     if not async_session_factory:
         raise RuntimeError("Database not initialized")
     
