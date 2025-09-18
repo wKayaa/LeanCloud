@@ -31,6 +31,10 @@ function initializeApp() {
     
     // Initialize UI components
     initializeUIComponents();
+    
+    // Initialize lists cache and populate selectors
+    loadLists();
+}
 }
 
 function setupEventListeners() {
@@ -148,6 +152,9 @@ function initializeUIComponents() {
     
     // Set initial generator config
     handleGeneratorTypeChange();
+    
+    // Attach scan form gating
+    attachScanFormGating();
 }
 
 // Authentication functions
@@ -465,58 +472,7 @@ function updateActiveScans(scans) {
 }
 
 // Scan functions
-async function handleScanSubmit(e) {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    
-    // Collect form data
-    const targets = formData.get('targets').split('\n').filter(t => t.trim());
-    const modules = Array.from(formData.getAll('modules'));
-    const services = Array.from(formData.getAll('services'));
-    
-    const scanRequest = {
-        crack_name: formData.get('crackName'),
-        targets: targets,
-        wordlist: formData.get('wordlist'),
-        modules: modules,
-        services: services,
-        concurrency: parseInt(formData.get('concurrency')),
-        timeout: parseInt(formData.get('timeout'))
-    };
-    
-    try {
-        showLoading('scanForm');
-        const response = await fetch(`${API_BASE}/scans`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify(scanRequest)
-        });
-        
-        if (response.ok) {
-            const result = await response.json();
-            currentScanId = result.scan_id;
-            
-            // Switch to live monitoring
-            showLiveScanMonitor(result);
-            
-            // Connect to scan WebSocket
-            connectScanWebSocket(result.scan_id);
-            
-            showSuccess('Scan launched successfully!');
-        } else {
-            const error = await response.json();
-            showError('scanError', error.detail || 'Failed to launch scan');
-        }
-    } catch (error) {
-        console.error('Scan launch error:', error);
-        showError('scanError', 'Network error. Please try again.');
-    } finally {
-        hideLoading('scanForm');
-    }
-}
+// Remove old handleScanSubmit - using enhanced version below
 
 function showLiveScanMonitor(scanData) {
     document.getElementById('preScanConfig').style.display = 'none';
@@ -1159,6 +1115,480 @@ async function handleStopScan() {
 }
 
 // Placeholder functions for missing implementations
+
+// ===== GLOBAL MESSAGING SYSTEM =====
+function showUserMessage(message, type = 'info', title = null, dismissible = true, duration = null) {
+    const container = document.getElementById('globalMessages');
+    if (!container) return;
+    
+    const messageId = 'msg-' + Date.now();
+    const alertDiv = document.createElement('div');
+    alertDiv.id = messageId;
+    alertDiv.className = `alert alert-${type}${dismissible ? ' alert-dismissible' : ''}`;
+    
+    const iconMap = {
+        success: '✅',
+        error: '❌', 
+        warning: '⚠️',
+        info: 'ℹ️'
+    };
+    
+    alertDiv.innerHTML = `
+        <div class="alert-icon">${iconMap[type] || 'ℹ️'}</div>
+        <div class="alert-content">
+            ${title ? `<div class="alert-title">${title}</div>` : ''}
+            <div class="alert-message">${message}</div>
+        </div>
+        ${dismissible ? '<button class="alert-close" onclick="hideUserMessage(\'' + messageId + '\')">&times;</button>' : ''}
+    `;
+    
+    container.appendChild(alertDiv);
+    
+    // Auto-dismiss if duration is set
+    if (duration) {
+        setTimeout(() => hideUserMessage(messageId), duration);
+    } else if (type === 'success' || type === 'info') {
+        // Auto-dismiss success and info messages after 5 seconds
+        setTimeout(() => hideUserMessage(messageId), 5000);
+    }
+    
+    return messageId;
+}
+
+function hideUserMessage(messageId) {
+    const message = document.getElementById(messageId);
+    if (message) {
+        message.style.animation = 'slideOutTop 0.3s ease-in';
+        setTimeout(() => message.remove(), 300);
+    }
+}
+
+function showToast(message, type = 'info', duration = 3000) {
+    return showUserMessage(message, type, null, true, duration);
+}
+
+// ===== SCAN READINESS VALIDATION =====
+function validateScanReadiness() {
+    const checklist = {
+        hasTargets: false,
+        hasValidConfig: false,
+        hasWordlist: false
+    };
+    
+    // Check if targets are provided (either from list or textarea)
+    const targetsListId = document.getElementById('targetsListId')?.value;
+    const targetsText = document.getElementById('targets')?.value?.trim();
+    checklist.hasTargets = !!(targetsListId || targetsText);
+    
+    // Check wordlist selection
+    const wordlist = document.getElementById('wordlistSelect')?.value;
+    checklist.hasWordlist = !!wordlist;
+    
+    // Check basic config
+    const operationName = document.getElementById('crackName')?.value?.trim();
+    checklist.hasValidConfig = !!operationName;
+    
+    return checklist;
+}
+
+function updateScanStartGating() {
+    const checklist = validateScanReadiness();
+    const allReady = Object.values(checklist).every(ready => ready);
+    
+    // Update submit button state
+    const submitBtn = document.querySelector('#scanForm button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.disabled = !allReady;
+        if (!allReady) {
+            submitBtn.classList.add('btn--loading');
+        } else {
+            submitBtn.classList.remove('btn--loading');
+        }
+    }
+    
+    // Update readiness indicator
+    const indicator = document.getElementById('readinessIndicator');
+    const text = document.getElementById('readinessText');
+    
+    if (indicator && text) {
+        if (allReady) {
+            indicator.className = 'readiness-indicator ready';
+            indicator.innerHTML = '<span>✅</span><span>Ready to launch</span>';
+        } else {
+            indicator.className = 'readiness-indicator pending';
+            const missing = [];
+            if (!checklist.hasTargets) missing.push('targets');
+            if (!checklist.hasWordlist) missing.push('wordlist');
+            if (!checklist.hasValidConfig) missing.push('operation name');
+            indicator.innerHTML = `<span>⚠️</span><span>Missing: ${missing.join(', ')}</span>`;
+        }
+    }
+}
+
+function attachScanFormGating() {
+    // Attach event listeners to form fields that affect readiness
+    const fields = [
+        'targetsListId',
+        'targets', 
+        'wordlistSelect',
+        'crackName'
+    ];
+    
+    fields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.addEventListener('input', updateScanStartGating);
+            field.addEventListener('change', updateScanStartGating);
+        }
+    });
+    
+    // Initial validation
+    updateScanStartGating();
+}
+
+// ===== LISTS MANAGEMENT =====
+let cachedLists = [];
+
+async function loadLists() {
+    try {
+        const response = await fetch(`${API_BASE}/lists`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const lists = await response.json();
+            cachedLists = lists;
+            
+            // Store in localStorage for offline access
+            localStorage.setItem('cachedLists', JSON.stringify(lists));
+            
+            displayLists(lists);
+            populateScanListSelector(lists);
+        } else if (response.status === 401) {
+            // Authentication error - handled elsewhere
+            console.warn('Authentication required for lists');
+        } else {
+            throw new Error(`Failed to load lists: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Failed to load lists:', error);
+        
+        // Try to load from cache
+        const cached = localStorage.getItem('cachedLists');
+        if (cached) {
+            try {
+                const lists = JSON.parse(cached);
+                cachedLists = lists;
+                displayLists(lists);
+                populateScanListSelector(lists);
+                showUserMessage('Loaded lists from cache (offline mode)', 'warning');
+            } catch (e) {
+                console.error('Failed to parse cached lists:', e);
+            }
+        } else {
+            showUserMessage('Failed to load target lists', 'error');
+        }
+    }
+}
+
+function populateScanListSelector(lists) {
+    const selector = document.getElementById('targetsListId');
+    if (!selector) return;
+    
+    // Clear existing options except default
+    selector.innerHTML = '<option value="">Select a saved list (optional)</option>';
+    
+    // Add target lists only
+    const targetLists = lists.filter(list => list.list_type === 'targets' || list.list_type === 'mixed');
+    targetLists.forEach(list => {
+        const option = document.createElement('option');
+        option.value = list.id;
+        option.textContent = `${list.name} (${list.size.toLocaleString()} items)`;
+        selector.appendChild(option);
+    });
+    
+    // Add event listener for list selection
+    selector.removeEventListener('change', handleListSelection); // Remove existing listener
+    selector.addEventListener('change', handleListSelection);
+}
+
+function handleListSelection(e) {
+    const listId = e.target.value;
+    const targetsTextarea = document.getElementById('targets');
+    
+    if (listId && targetsTextarea) {
+        // When a list is selected, clear the textarea and update gating
+        targetsTextarea.value = '';
+        targetsTextarea.placeholder = 'List selected above - targets will be loaded from saved list';
+        targetsTextarea.disabled = true;
+    } else if (targetsTextarea) {
+        // When no list is selected, re-enable textarea
+        targetsTextarea.placeholder = 'example.com\nhttps://target.com\napp.example.com';
+        targetsTextarea.disabled = false;
+    }
+    
+    updateScanStartGating();
+}
+
+function displayLists(lists) {
+    const container = document.getElementById('listsGrid');
+    if (!container) return;
+    
+    if (lists.length === 0) {
+        container.innerHTML = '<div class="no-lists">No lists uploaded yet</div>';
+        return;
+    }
+    
+    container.innerHTML = lists.map(list => `
+        <div class="list-card card-hover transition-fast" data-list-id="${list.id}">
+            <div class="list-header">
+                <h4>${list.name}</h4>
+                <span class="list-type ${list.list_type}">${list.list_type}</span>
+            </div>
+            <div class="list-stats">
+                <div class="stat">
+                    <span class="label">Items:</span>
+                    <span class="value">${list.size.toLocaleString()}</span>
+                </div>
+                <div class="stat">
+                    <span class="label">Size:</span>
+                    <span class="value">${formatFileSize(list.file_size)}</span>
+                </div>
+                <div class="stat">
+                    <span class="label">Created:</span>
+                    <span class="value">${formatDate(list.created_at)}</span>
+                </div>
+            </div>
+            <div class="list-actions space-2">
+                <button class="btn btn-sm btn-primary" onclick="useList('${list.id}')">Use</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteList('${list.id}')">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function useList(listId) {
+    // Switch to scan tab and select this list
+    switchTab('scan');
+    
+    // Set the list selector
+    const selector = document.getElementById('targetsListId');
+    if (selector) {
+        selector.value = listId;
+        handleListSelection({ target: selector });
+    }
+    
+    const list = cachedLists.find(l => l.id === listId);
+    if (list) {
+        showToast(`Selected list: ${list.name}`, 'success');
+    }
+}
+
+async function deleteList(listId) {
+    const list = cachedLists.find(l => l.id === listId);
+    if (!list) return;
+    
+    if (!confirm(`Are you sure you want to delete "${list.name}"? This action cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/lists/${listId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            showToast('List deleted successfully', 'success');
+            // Reload lists to refresh the display
+            loadLists();
+        } else {
+            const error = await response.json();
+            showUserMessage(error.detail || 'Failed to delete list', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete list:', error);
+        showUserMessage('Network error while deleting list', 'error');
+    }
+}
+
+// ===== ENHANCED SCAN HANDLING =====
+async function handleScanSubmit(e) {
+    e.preventDefault();
+    
+    // Validate readiness
+    const checklist = validateScanReadiness();
+    const allReady = Object.values(checklist).every(ready => ready);
+    
+    if (!allReady) {
+        const missing = [];
+        if (!checklist.hasTargets) missing.push('targets or saved list');
+        if (!checklist.hasWordlist) missing.push('wordlist');
+        if (!checklist.hasValidConfig) missing.push('operation name');
+        
+        showUserMessage(`Cannot start scan: Missing ${missing.join(', ')}`, 'error', 'Scan Validation Failed');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    
+    // Determine targets source
+    let targets = [];
+    const selectedListId = formData.get('targetsListId');
+    
+    if (selectedListId) {
+        // Use selected list - targets will be loaded server-side
+        targets = []; // Empty array indicates list should be used
+    } else {
+        // Use pasted targets
+        const targetText = formData.get('targets');
+        targets = targetText.split('\n').filter(t => t.trim()).map(t => t.trim());
+    }
+    
+    // Get selected modules and services
+    const modules = Array.from(document.querySelectorAll('input[name="modules"]:checked')).map(cb => cb.value);
+    const services = Array.from(document.querySelectorAll('input[name="services"]:checked')).map(cb => cb.value);
+    
+    const scanRequest = {
+        name: formData.get('crackName'),
+        targets: targets,
+        target_list_id: selectedListId || null,
+        wordlist: formData.get('wordlist'),
+        concurrency: parseInt(formData.get('concurrency')),
+        timeout: parseInt(formData.get('timeout')),
+        modules: modules,
+        services: services
+    };
+    
+    try {
+        showLoading('scanForm');
+        const response = await fetch(`${API_BASE}/scans`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify(scanRequest)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            currentScanId = result.scan_id;
+            
+            showUserMessage(`Scan started successfully: ${result.scan_id}`, 'success', 'Operation Launched');
+            
+            // Transition to live monitoring
+            showLiveScanMonitor(result.scan_id, scanRequest.name);
+            updateStepperState('live');
+            
+            // Reset form
+            e.target.reset();
+            updateScanStartGating();
+            
+        } else {
+            const error = await response.json();
+            showUserMessage(error.detail || 'Failed to start scan', 'error', 'Scan Start Failed');
+        }
+    } catch (error) {
+        console.error('Scan submission error:', error);
+        showUserMessage('Network error while starting scan', 'error', 'Connection Error');
+    } finally {
+        hideLoading('scanForm');
+    }
+}
+
+function updateStepperState(activeStep) {
+    const steps = document.querySelectorAll('.stepper-step');
+    const stepOrder = ['targets', 'config', 'review', 'live'];
+    const activeIndex = stepOrder.indexOf(activeStep);
+    
+    steps.forEach((step, index) => {
+        const stepData = step.dataset.step;
+        const stepIndex = stepOrder.indexOf(stepData);
+        
+        step.classList.remove('active', 'completed');
+        
+        if (stepIndex < activeIndex) {
+            step.classList.add('completed');
+        } else if (stepIndex === activeIndex) {
+            step.classList.add('active');
+        }
+    });
+}
+
+function showLiveScanMonitor(scanId, scanName) {
+    // Hide pre-scan config
+    const preScanConfig = document.getElementById('preScanConfig');
+    if (preScanConfig) {
+        preScanConfig.style.display = 'none';
+    }
+    
+    // Show live monitor
+    const liveMonitor = document.getElementById('liveScanMonitor');
+    if (liveMonitor) {
+        liveMonitor.style.display = 'block';
+        
+        // Update title
+        const title = document.getElementById('activeScanTitle');
+        if (title) {
+            title.textContent = `🎯 Operation: ${scanName}`;
+        }
+    }
+}
+
+// ===== PAUSE/RESUME FUNCTIONALITY =====
+async function handlePauseResume() {
+    if (!currentScanId) {
+        showUserMessage('No active scan to control', 'warning');
+        return;
+    }
+    
+    const button = document.getElementById('pauseResumeBtn');
+    if (!button) return;
+    
+    const isPaused = button.textContent.includes('Resume');
+    const action = isPaused ? 'resume' : 'pause';
+    
+    try {
+        const response = await fetch(`${API_BASE}/scans/${currentScanId}/control`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ action })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            
+            // Update button text and state
+            if (action === 'pause') {
+                button.innerHTML = '▶️ Resume';
+                button.className = 'btn btn-primary';
+                showToast('Scan paused successfully', 'info');
+            } else {
+                button.innerHTML = '⏸️ Pause'; 
+                button.className = 'btn btn-warning';
+                showToast('Scan resumed successfully', 'success');
+            }
+            
+            // Update scan status display
+            const statusElement = document.getElementById('scanStatus');
+            if (statusElement) {
+                statusElement.textContent = result.status?.toUpperCase() || (action === 'pause' ? 'PAUSED' : 'RUNNING');
+                statusElement.className = `stat-value ${result.status || (action === 'pause' ? 'paused' : 'running')}`;
+            }
+            
+        } else {
+            const error = await response.json();
+            showUserMessage(error.detail || `Failed to ${action} scan`, 'error');
+        }
+    } catch (error) {
+        console.error(`${action} scan error:`, error);
+        showUserMessage('Network error while controlling scan', 'error');
+    }
+}
 async function loadScanConfig() {
     // Load available wordlists for dropdown
     try {
@@ -1188,23 +1618,95 @@ async function loadScanConfig() {
 }
 
 async function loadGeneratedLists() {
-    // Load generated IP lists
-    console.log('Loading generated lists...');
+    // Load generated IP lists for the IP Generator tab
+    try {
+        const response = await fetch(`${API_BASE}/generator/lists`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const lists = await response.json();
+            displayGeneratedLists(lists);
+        }
+    } catch (error) {
+        console.error('Failed to load generated lists:', error);
+    }
 }
 
 async function loadHits() {
-    // Load hits data
-    console.log('Loading hits...');
+    // Load scan results/hits for current user
+    try {
+        const response = await fetch(`${API_BASE}/results`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const hits = await response.json();
+            displayHits(hits);
+        }
+    } catch (error) {
+        console.error('Failed to load hits:', error);
+        showUserMessage('Failed to load scan results', 'error');
+    }
 }
 
 async function loadSettings() {
-    // Load current settings
-    console.log('Loading settings...');
+    // Load current user settings and system configuration
+    try {
+        const response = await fetch(`${API_BASE}/settings`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const settings = await response.json();
+            displaySettings(settings);
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+        showUserMessage('Failed to load settings', 'error');
+    }
 }
 
 // Additional utility functions
 function showUploadModal() {
-    console.log('Show upload modal');
+    // Handle file upload for lists
+    const fileInput = document.getElementById('listFile');
+    if (!fileInput || !fileInput.files[0]) return;
+    
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('list_type', 'targets'); // Default type
+    
+    uploadList(formData, file.name);
+}
+
+async function uploadList(formData, fileName) {
+    try {
+        const uploadMsgId = showUserMessage('Uploading list...', 'info', null, false);
+        
+        const response = await fetch(`${API_BASE}/lists`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            body: formData
+        });
+        
+        hideUserMessage(uploadMsgId);
+        
+        if (response.ok) {
+            const result = await response.json();
+            showUserMessage(`List "${fileName}" uploaded successfully (${result.size} items)`, 'success');
+            
+            // Refresh lists display
+            loadLists();
+        } else {
+            const error = await response.json();
+            showUserMessage(error.detail || 'Failed to upload list', 'error');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        showUserMessage('Network error during upload', 'error');
+    }
 }
 
 function useList(listId) {
@@ -1487,15 +1989,15 @@ async function purgeAllResults() {
         });
         
         if (response.ok) {
-            alert('Tous les résultats ont été supprimés avec succès.');
+            showUserMessage('Tous les résultats ont été supprimés avec succès.', 'success');
             loadResultats(); // Reload the results
         } else {
-            alert('Erreur lors de la suppression des résultats.');
+            showUserMessage('Erreur lors de la suppression des résultats.', 'error');
         }
         
     } catch (error) {
         console.error('Failed to purge results:', error);
-        alert('Erreur lors de la suppression des résultats.');
+        showUserMessage('Erreur lors de la suppression des résultats.', 'error');
     }
 }
 
@@ -1578,16 +2080,16 @@ async function startGrabber() {
         
         if (response.ok) {
             const result = await response.json();
-            alert(result.message);
+            showUserMessage(result.message, 'success');
             loadDomaines(); // Refresh status
         } else {
             const error = await response.json();
-            alert(`Erreur: ${error.detail}`);
+            showUserMessage(`Erreur: ${error.detail}`, 'error');
         }
         
     } catch (error) {
         console.error('Failed to start grabber:', error);
-        alert('Erreur lors du démarrage du grabber.');
+        showUserMessage('Erreur lors du démarrage du grabber.', 'error');
     }
 }
 
@@ -1600,16 +2102,16 @@ async function stopGrabber() {
         
         if (response.ok) {
             const result = await response.json();
-            alert(result.message);
+            showUserMessage(result.message, 'success');
             loadDomaines(); // Refresh status
         } else {
             const error = await response.json();
-            alert(`Erreur: ${error.detail}`);
+            showUserMessage(`Erreur: ${error.detail}`, 'error');
         }
         
     } catch (error) {
         console.error('Failed to stop grabber:', error);
-        alert('Erreur lors de l\'arrêt du grabber.');
+        showUserMessage('Erreur lors de l\'arrêt du grabber.', 'error');
     }
 }
 
@@ -1627,12 +2129,12 @@ async function deleteDomainList(listId) {
         if (response.ok) {
             loadDomaines(); // Refresh list
         } else {
-            alert('Erreur lors de la suppression du fichier.');
+            showUserMessage('Erreur lors de la suppression du fichier.', 'error');
         }
         
     } catch (error) {
         console.error('Failed to delete domain list:', error);
-        alert('Erreur lors de la suppression du fichier.');
+        showUserMessage('Erreur lors de la suppression du fichier.', 'error');
     }
 }
 

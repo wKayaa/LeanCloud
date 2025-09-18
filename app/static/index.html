@@ -57,6 +57,9 @@
             </div>
         </div>
 
+        <!-- Global Messages Container -->
+        <div id="globalMessages" class="global-messages" aria-live="polite" aria-atomic="true"></div>
+
         <!-- Main App -->
         <div id="mainApp" class="main-app" style="display: none;">
             <!-- Header -->
@@ -244,11 +247,48 @@
             <!-- Scan Tab -->
             <div id="scan" class="tab-content">
                 <div class="scan-container">
+                    <!-- Scan Flow Stepper -->
+                    <div class="stepper">
+                        <div class="stepper-step active" data-step="targets">
+                            <div class="stepper-icon">1</div>
+                            <div class="stepper-content">
+                                <div class="stepper-title">Targets</div>
+                                <div class="stepper-description">Select targets and wordlists</div>
+                            </div>
+                        </div>
+                        <div class="stepper-step" data-step="config">
+                            <div class="stepper-icon">2</div>
+                            <div class="stepper-content">
+                                <div class="stepper-title">Config</div>
+                                <div class="stepper-description">Performance and modules</div>
+                            </div>
+                        </div>
+                        <div class="stepper-step" data-step="review">
+                            <div class="stepper-icon">3</div>
+                            <div class="stepper-content">
+                                <div class="stepper-title">Review</div>
+                                <div class="stepper-description">Validate and prepare</div>
+                            </div>
+                        </div>
+                        <div class="stepper-step" data-step="live">
+                            <div class="stepper-icon">🎯</div>
+                            <div class="stepper-content">
+                                <div class="stepper-title">Live</div>
+                                <div class="stepper-description">Monitor operation</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Pre-Scan Configuration -->
                     <div id="preScanConfig" class="scan-section">
                         <div class="scan-header">
                             <h2>🎯 Launch New Intelligence Operation</h2>
                             <div class="scan-subtitle">Configure your high-performance scanning mission</div>
+                            <!-- Readiness Indicator -->
+                            <div id="readinessIndicator" class="readiness-indicator pending">
+                                <span>⚠️</span>
+                                <span id="readinessText">Setup required</span>
+                            </div>
                         </div>
 
                         <form id="scanForm" class="scan-form">
@@ -272,6 +312,16 @@
                             <!-- Target Configuration -->
                             <div class="config-section">
                                 <h3>🎯 Target Selection</h3>
+                                
+                                <!-- Saved Target Lists Selector -->
+                                <div class="form-group">
+                                    <label for="targetsListId">Saved Target Lists:</label>
+                                    <select id="targetsListId" name="targetsListId">
+                                        <option value="">Select a saved list (optional)</option>
+                                    </select>
+                                    <small>Choose a previously uploaded target list or paste targets below</small>
+                                </div>
+
                                 <div class="form-group">
                                     <label for="targets">Target URLs/Domains:</label>
                                     <textarea id="targets" name="targets" rows="4" placeholder="example.com&#10;https://target.com&#10;app.example.com" required></textarea>
