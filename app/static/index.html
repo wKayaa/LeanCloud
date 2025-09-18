@@ -104,9 +104,13 @@
                     <span class="nav-icon">🌐</span>
                     <span class="nav-label">IP Generator</span>
                 </button>
-                <button class="nav-btn" data-tab="hits">
+                <button class="nav-btn" data-tab="statistiques">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">Statistiques</span>
+                </button>
+                <button class="nav-btn" data-tab="resultats">
                     <span class="nav-icon">🎯</span>
-                    <span class="nav-label">Hits</span>
+                    <span class="nav-label">Résultats</span>
                 </button>
                 <button class="nav-btn" data-tab="settings">
                     <span class="nav-icon">⚙️</span>
@@ -206,6 +210,255 @@
                                         <div class="resource-fill" id="networkBar" style="width: 0%"></div>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistiques Tab -->
+            <div id="statistiques" class="tab-content">
+                <div class="statistiques-container">
+                    <div class="statistiques-header">
+                        <h2>📊 Statistiques du Scan</h2>
+                        <div class="scan-controls">
+                            <button id="pauseResumeBtn" class="btn btn-accent">⏸️ Pause</button>
+                            <button id="stopScanBtn" class="btn btn-danger">⏹️ Stop</button>
+                            <button id="refreshStatsBtn" class="btn btn-secondary">🔄 Actualiser</button>
+                        </div>
+                    </div>
+
+                    <!-- Progress Section -->
+                    <div class="progress-section">
+                        <div class="progress-card">
+                            <div class="progress-header">
+                                <span class="progress-title">Progression du Scan</span>
+                                <span id="scanProgressPercent" class="progress-percent">0%</span>
+                            </div>
+                            <div class="progress-bar-large">
+                                <div id="scanProgressBar" class="progress-fill-large"></div>
+                            </div>
+                            <div class="progress-details">
+                                <span id="processedUrlsCount">0</span> URLs traitées sur <span id="totalUrlsCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Metrics Grid -->
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-icon">⚡</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="urlsPerSec">0</div>
+                                <div class="metric-label">URLs/sec</div>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🔗</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="httpsReqPerSec">0</div>
+                                <div class="metric-label">Requêtes HTTPS/sec</div>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🎯</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="precisionPercent">0.00%</div>
+                                <div class="metric-label">Précision</div>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">⏱️</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="scanDuration">00:00:00</div>
+                                <div class="metric-label">Durée</div>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">⏰</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="scanEta">--:--:--</div>
+                                <div class="metric-label">ETA</div>
+                            </div>
+                        </div>
+                        <div class="metric-card primary">
+                            <div class="metric-icon">🎯</div>
+                            <div class="metric-content">
+                                <div class="metric-value" id="totalHitsFound">0</div>
+                                <div class="metric-label">Hits totaux</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Provider Tiles -->
+                    <div class="providers-section">
+                        <h3>☁️ Hits par Service</h3>
+                        <div class="provider-tiles">
+                            <div class="provider-tile aws">
+                                <div class="provider-icon">☁️</div>
+                                <div class="provider-name">AWS</div>
+                                <div class="provider-count" id="awsHits">0</div>
+                            </div>
+                            <div class="provider-tile sendgrid">
+                                <div class="provider-icon">📧</div>
+                                <div class="provider-name">SendGrid</div>
+                                <div class="provider-count" id="sendgridHits">0</div>
+                            </div>
+                            <div class="provider-tile sparkpost">
+                                <div class="provider-icon">✨</div>
+                                <div class="provider-name">SparkPost</div>
+                                <div class="provider-count" id="sparkpostHits">0</div>
+                            </div>
+                            <div class="provider-tile twilio">
+                                <div class="provider-icon">💬</div>
+                                <div class="provider-name">Twilio</div>
+                                <div class="provider-count" id="twilioHits">0</div>
+                            </div>
+                            <div class="provider-tile brevo">
+                                <div class="provider-icon">📨</div>
+                                <div class="provider-name">Brevo</div>
+                                <div class="provider-count" id="brevoHits">0</div>
+                            </div>
+                            <div class="provider-tile mailgun">
+                                <div class="provider-icon">🔫</div>
+                                <div class="provider-name">MailGun</div>
+                                <div class="provider-count" id="mailgunHits">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Résultats Tab -->
+            <div id="resultats" class="tab-content">
+                <div class="resultats-container">
+                    <div class="resultats-header">
+                        <h2>🎯 Résultats des Hits</h2>
+                        <div class="resultats-actions">
+                            <button id="exportResultsBtn" class="btn btn-accent">📊 Exporter</button>
+                            <button id="purgeResultsBtn" class="btn btn-danger">🗑️ Supprimer Tout</button>
+                        </div>
+                    </div>
+
+                    <!-- Counters -->
+                    <div class="counters-section">
+                        <div class="counter-card validated">
+                            <div class="counter-icon">✅</div>
+                            <div class="counter-content">
+                                <div class="counter-value" id="validatedCount">0</div>
+                                <div class="counter-label">Validés</div>
+                            </div>
+                        </div>
+                        <div class="counter-card invalid">
+                            <div class="counter-icon">❌</div>
+                            <div class="counter-content">
+                                <div class="counter-value" id="invalidCount">0</div>
+                                <div class="counter-label">Invalides</div>
+                            </div>
+                        </div>
+                        <div class="counter-card total">
+                            <div class="counter-icon">📊</div>
+                            <div class="counter-content">
+                                <div class="counter-value" id="totalCount">0</div>
+                                <div class="counter-label">Total</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="results-filters">
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <select id="validationFilter" name="validationFilter">
+                                    <option value="">Tous</option>
+                                    <option value="validated">Validés</option>
+                                    <option value="invalid">Invalides</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <select id="serviceFilter" name="serviceFilter">
+                                    <option value="">Tous les services</option>
+                                    <option value="aws">AWS</option>
+                                    <option value="sendgrid">SendGrid</option>
+                                    <option value="sparkpost">SparkPost</option>
+                                    <option value="twilio">Twilio</option>
+                                    <option value="brevo">Brevo</option>
+                                    <option value="mailgun">MailGun</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <select id="sortFilter" name="sortFilter">
+                                    <option value="date_desc">Trier par date (récent)</option>
+                                    <option value="date_asc">Trier par date (ancien)</option>
+                                    <option value="service">Trier par service</option>
+                                    <option value="status">Trier par statut</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results List -->
+                    <div id="resultsList" class="results-list">
+                        <!-- Results will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Detail Drawer -->
+            <div id="resultsDrawer" class="drawer">
+                <div class="drawer-content">
+                    <div class="drawer-header">
+                        <h3>Détails du Hit</h3>
+                        <button id="closeDrawer" class="btn-close">×</button>
+                    </div>
+                    <div class="drawer-body">
+                        <div class="detail-section">
+                            <h4>Informations générales</h4>
+                            <div class="detail-grid">
+                                <div class="detail-item">
+                                    <span class="detail-label">URL:</span>
+                                    <span id="detailUrl" class="detail-value"></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Service:</span>
+                                    <span id="detailService" class="detail-value"></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Découvert le:</span>
+                                    <span id="detailDate" class="detail-value"></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Statut:</span>
+                                    <span id="detailStatus" class="detail-value"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Credentials du Provider</h4>
+                            <div class="provider-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">API Key:</span>
+                                    <span id="detailApiKey" class="detail-value masked"></span>
+                                    <button id="toggleMask" class="btn btn-small">👁️ Révéler</button>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Validation:</span>
+                                    <span id="detailValidation" class="detail-value"></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Raison:</span>
+                                    <span id="detailReason" class="detail-value"></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Quota:</span>
+                                    <span id="detailQuota" class="detail-value"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Evidence</h4>
+                            <div class="evidence-container">
+                                <pre id="detailEvidence" class="evidence-text"></pre>
                             </div>
                         </div>
                     </div>
@@ -540,50 +793,6 @@
                         <div id="generatedListsGrid" class="generated-lists-grid">
                             <!-- Generated lists will be populated here -->
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Hits Tab -->
-            <div id="hits" class="tab-content">
-                <div class="hits-container">
-                    <div class="hits-header">
-                        <h2>🎯 Intelligence Hits</h2>
-                        <div class="hits-actions">
-                            <button id="exportHitsBtn" class="btn btn-accent">📊 Export Results</button>
-                        </div>
-                    </div>
-
-                    <!-- Filters and Search -->
-                    <div class="hits-filters">
-                        <div class="filter-row">
-                            <div class="filter-group">
-                                <label for="serviceFilter">Service:</label>
-                                <select id="serviceFilter" name="serviceFilter">
-                                    <option value="">All Services</option>
-                                    <option value="aws">AWS</option>
-                                    <option value="sendgrid">SendGrid</option>
-                                    <option value="smtp">SMTP</option>
-                                    <option value="twilio">Twilio</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <label for="statusFilter">Status:</label>
-                                <select id="statusFilter" name="statusFilter">
-                                    <option value="">All</option>
-                                    <option value="verified">Verified Working</option>
-                                    <option value="unverified">Unverified</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <input type="text" id="searchHits" name="search" placeholder="🔍 Search hits...">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Hits Grid -->
-                    <div id="hitsGrid" class="hits-grid">
-                        <!-- Hits will be populated here -->
                     </div>
                 </div>
             </div>

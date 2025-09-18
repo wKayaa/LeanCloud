@@ -140,6 +140,46 @@ function setupEventListeners() {
     const stopScanBtn = document.getElementById('stopScanBtn');
     if (pauseResumeBtn) pauseResumeBtn.addEventListener('click', handlePauseResume);
     if (stopScanBtn) stopScanBtn.addEventListener('click', handleStopScan);
+    
+    // Results drawer controls
+    const closeDrawer = document.getElementById('closeDrawer');
+    if (closeDrawer) {
+        closeDrawer.addEventListener('click', closeResultsDrawer);
+    }
+    
+    // Results actions
+    const exportResultsBtn = document.getElementById('exportResultsBtn');
+    if (exportResultsBtn) {
+        exportResultsBtn.addEventListener('click', handleExportResults);
+    }
+    
+    const purgeResultsBtn = document.getElementById('purgeResultsBtn');
+    if (purgeResultsBtn) {
+        purgeResultsBtn.addEventListener('click', handlePurgeResults);
+    }
+    
+    // Results filters
+    const validationFilter = document.getElementById('validationFilter');
+    const serviceFilter = document.getElementById('serviceFilter');
+    const sortFilter = document.getElementById('sortFilter');
+    
+    [validationFilter, serviceFilter, sortFilter].forEach(filter => {
+        if (filter) {
+            filter.addEventListener('change', handleFilterChange);
+        }
+    });
+    
+    // Toggle mask button
+    const toggleMask = document.getElementById('toggleMask');
+    if (toggleMask) {
+        toggleMask.addEventListener('click', handleToggleMask);
+    }
+    
+    // Statistics refresh
+    const refreshStatsBtn = document.getElementById('refreshStatsBtn');
+    if (refreshStatsBtn) {
+        refreshStatsBtn.addEventListener('click', () => loadStatistiques());
+    }
 }
 
 function initializeUIComponents() {
@@ -342,6 +382,12 @@ function switchTab(tabName) {
         case 'dashboard':
             loadDashboardData();
             break;
+        case 'statistiques':
+            loadStatistiques();
+            break;
+        case 'resultats':
+            loadResultats();
+            break;
         case 'scan':
             loadScanConfig();
             break;
@@ -350,9 +396,6 @@ function switchTab(tabName) {
             break;
         case 'ipgen':
             loadGeneratedLists();
-            break;
-        case 'hits':
-            loadHits();
             break;
         case 'settings':
             loadSettings();
@@ -1071,14 +1114,212 @@ async function loadGeneratedLists() {
     console.log('Loading generated lists...');
 }
 
-async function loadHits() {
-    // Load hits data
-    console.log('Loading hits...');
+async function loadStatistiques() {
+    // Load live statistics data
+    try {
+        // Load scan telemetry
+        const response = await fetch(`${API_BASE}/scans/active`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const scans = await response.json();
+            updateStatistiquesDisplay(scans);
+        }
+        
+        // Start WebSocket for live updates if not already connected
+        if (!websocketConnection) {
+            connectScanWebSocket();
+        }
+    } catch (error) {
+        console.error('Failed to load statistiques:', error);
+    }
+}
+
+function updateStatistiquesDisplay(scans) {
+    // Update scan progress and metrics
+    if (scans.length > 0) {
+        const activeScan = scans[0]; // For demo, use first active scan
+        
+        // Update progress
+        const progressPercent = Math.round(activeScan.progress_percent || 0);
+        updateElement('scanProgressPercent', `${progressPercent}%`);
+        
+        const progressBar = document.getElementById('scanProgressBar');
+        if (progressBar) {
+            progressBar.style.width = `${progressPercent}%`;
+        }
+        
+        // Update counters
+        updateElement('processedUrlsCount', (activeScan.processed_urls || 0).toLocaleString());
+        updateElement('totalUrlsCount', (activeScan.total_urls || 0).toLocaleString());
+        updateElement('totalHitsFound', activeScan.hits_count || 0);
+        
+        // Update metrics
+        updateElement('urlsPerSec', Math.round(activeScan.urls_per_sec || 0));
+        updateElement('httpsReqPerSec', Math.round(activeScan.checks_per_sec || 0));
+        updateElement('precisionPercent', ((activeScan.hits_count / Math.max(activeScan.processed_urls, 1)) * 100).toFixed(2) + '%');
+        
+        // Update duration and ETA
+        const duration = formatDuration(activeScan.duration_seconds || 0);
+        const eta = activeScan.eta_seconds ? formatDuration(activeScan.eta_seconds) : '--:--:--';
+        updateElement('scanDuration', duration);
+        updateElement('scanEta', eta);
+    }
+    
+    // Update provider tiles with synthetic data for demo
+    updateProviderTiles();
+}
+
+function updateProviderTiles() {
+    // Demo provider hit counts
+    const providerHits = {
+        aws: Math.floor(Math.random() * 10),
+        sendgrid: Math.floor(Math.random() * 8),
+        sparkpost: Math.floor(Math.random() * 5),
+        twilio: Math.floor(Math.random() * 6),
+        brevo: Math.floor(Math.random() * 4),
+        mailgun: Math.floor(Math.random() * 7)
+    };
+    
+    Object.entries(providerHits).forEach(([provider, count]) => {
+        updateElement(`${provider}Hits`, count);
+    });
+}
+
+async function loadResultats() {
+    // Load results data
+    try {
+        const response = await fetch(`${API_BASE}/results?limit=50`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            updateResultatsDisplay(data);
+        }
+    } catch (error) {
+        console.error('Failed to load resultats:', error);
+    }
+}
+
+function updateResultatsDisplay(data) {
+    // Update counters
+    const counters = data.counters || {};
+    updateElement('validatedCount', counters.validated || 0);
+    updateElement('invalidCount', counters.invalid || 0);
+    updateElement('totalCount', counters.total || 0);
+    
+    // Update results list
+    const resultsList = document.getElementById('resultsList');
+    if (resultsList && data.results) {
+        resultsList.innerHTML = '';
+        
+        data.results.forEach(result => {
+            const resultItem = createResultItem(result);
+            resultsList.appendChild(resultItem);
+        });
+    }
+}
+
+function createResultItem(result) {
+    const div = document.createElement('div');
+    div.className = 'result-item';
+    div.onclick = () => showResultDetail(result.id);
+    
+    const statusBadge = result.validated ? 
+        '<span class="status-badge validated">✅ Validé</span>' :
+        '<span class="status-badge invalid">❌ Invalide</span>';
+    
+    div.innerHTML = `
+        <div class="result-main">
+            <span class="service-chip ${result.service}">${result.service.toUpperCase()}</span>
+            <div>
+                <div class="result-url">${result.url}</div>
+                <div class="result-date">${formatDate(result.discovered_at)}</div>
+            </div>
+        </div>
+        <div class="result-status">
+            ${statusBadge}
+        </div>
+    `;
+    
+    return div;
+}
+
+async function showResultDetail(hitId) {
+    try {
+        const response = await fetch(`${API_BASE}/results/${hitId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            openResultsDrawer(result);
+        }
+    } catch (error) {
+        console.error('Failed to load result detail:', error);
+    }
+}
+
+function openResultsDrawer(result) {
+    // Populate drawer with result details
+    updateElement('detailUrl', result.url);
+    updateElement('detailService', result.service.toUpperCase());
+    updateElement('detailDate', formatDate(result.discovered_at));
+    updateElement('detailStatus', result.validated ? 'Validé' : 'Invalide');
+    
+    if (result.provider_payload) {
+        updateElement('detailApiKey', result.provider_payload.masked_api_key);
+        updateElement('detailValidation', result.provider_payload.status);
+        updateElement('detailReason', result.provider_payload.reason || 'N/A');
+        updateElement('detailQuota', result.provider_payload.quota ? JSON.stringify(result.provider_payload.quota) : 'N/A');
+    }
+    
+    // Show evidence (placeholder)
+    updateElement('detailEvidence', `URL: ${result.url}\nService: ${result.service}\nStatus: ${result.validated ? 'Valid' : 'Invalid'}`);
+    
+    // Open drawer
+    const drawer = document.getElementById('resultsDrawer');
+    if (drawer) {
+        drawer.classList.add('open');
+    }
+}
+
+function closeResultsDrawer() {
+    const drawer = document.getElementById('resultsDrawer');
+    if (drawer) {
+        drawer.classList.remove('open');
+    }
+}
+
+// Event handlers for scan controls
+async function handlePauseResume() {
+    console.log('Pause/Resume scan functionality');
+    // Implementation for pause/resume
+}
+
+async function handleStopScan() {
+    console.log('Stop scan functionality');
+    // Implementation for stop scan
 }
 
 async function loadSettings() {
-    // Load current settings
-    console.log('Loading settings...');
+    // Load current settings including Telegram
+    try {
+        const response = await fetch(`${API_BASE}/settings/telegram`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const settings = await response.json();
+            if (settings.chat_id) {
+                document.getElementById('telegramChatId').value = settings.chat_id;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
 }
 
 // Additional utility functions
@@ -1104,4 +1345,82 @@ function pauseScan(scanId) {
 
 function stopScan(scanId) {
     console.log('Stop scan:', scanId);
+}
+
+// New handler functions for Résultats and Statistiques
+
+async function handleExportResults() {
+    try {
+        const response = await fetch(`${API_BASE}/results?format=csv`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `results_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showSuccess('Results exported successfully');
+        }
+    } catch (error) {
+        console.error('Export failed:', error);
+        showError('exportError', 'Failed to export results');
+    }
+}
+
+async function handlePurgeResults() {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer tous les résultats ? Cette action est irréversible.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/results/purge`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+            showSuccess('Tous les résultats ont été supprimés');
+            loadResultats();  // Reload the results tab
+        } else {
+            throw new Error('Purge failed');
+        }
+    } catch (error) {
+        console.error('Purge failed:', error);
+        showError('purgeError', 'Failed to purge results');
+    }
+}
+
+function handleFilterChange() {
+    // Reload results with current filter values
+    loadResultats();
+}
+
+function handleToggleMask() {
+    const detailApiKey = document.getElementById('detailApiKey');
+    const toggleBtn = document.getElementById('toggleMask');
+    
+    if (detailApiKey && toggleBtn) {
+        if (detailApiKey.classList.contains('masked')) {
+            // Show unmasked (admin only)
+            detailApiKey.classList.remove('masked');
+            toggleBtn.textContent = '🙈 Masquer';
+        } else {
+            // Mask it
+            detailApiKey.classList.add('masked');
+            toggleBtn.textContent = '👁️ Révéler';
+        }
+    }
+}
+
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
