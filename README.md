@@ -70,6 +70,25 @@ A production-ready HTTP response scanner with a French-themed futuristic web int
    - Default login: `admin` / `admin123`
    - **Important**: Change password on first login!
 
+## Configuration
+
+### Security Configuration
+- **Secret Key**: Change the `secret_key` in `data/config.yml` before production deployment for JWT token security
+- **Default Password**: Change the default admin password on first login
+
+### Optional Redis Configuration
+Redis is **optional** and provides enhanced features when available:
+- **With Redis**: Distributed rate limiting, real-time features, and enhanced caching
+- **Without Redis**: The app runs in degraded mode with in-memory rate limiting and basic functionality
+- **Error Handling**: When Redis is unavailable, the system logs a single initialization failure and falls back gracefully without per-request error spam
+
+### Domain Grabber Setup
+The grabber requires domain seed files to function:
+- **Location**: Place `.txt` or `.list` domain files in the `data/lists/` directory
+- **Format**: One domain per line (e.g., `example.com`, `test.org`)
+- **Behavior**: Starting the grabber without seed files will return a 400 error by design
+- **Example**: Create `data/lists/domains.txt` with your target domains before using the grabber
+
 ## French UI Guide
 
 ### Dashboard - Contrôle du Cracker

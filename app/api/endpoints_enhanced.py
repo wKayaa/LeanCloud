@@ -61,6 +61,16 @@ async def get_metrics():
         media_type=metrics.get_content_type()
     )
 
+# Authentication endpoints
+@router.get("/auth/me")
+async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
+    """Get current authenticated user information"""
+    return {
+        "username": current_user["sub"],
+        "role": current_user["role"],
+        "exp": current_user.get("exp")
+    }
+
 # Enhanced scan endpoints
 @router.post("/scans", dependencies=[Depends(get_current_user)])
 async def create_scan(scan_request: ScanRequest) -> Dict[str, str]:
