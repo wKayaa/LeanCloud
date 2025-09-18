@@ -112,7 +112,7 @@ class ListDB(Base):
     """Database model for wordlists and target lists"""
     __tablename__ = "lists"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     list_type = Column(String(50), nullable=False, index=True)  # 'wordlist', 'targets', 'ips'
@@ -128,7 +128,7 @@ class IPListDB(Base):
     """Database model for generated IP lists"""
     __tablename__ = "ip_lists"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False, index=True)
     generator_type = Column(String(50), nullable=False)  # 'random', 'subnet', 'range'
     config = Column(JSON, nullable=False)  # Generator configuration
@@ -142,7 +142,7 @@ class SettingsDB(Base):
     """Database model for application settings"""
     __tablename__ = "settings"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     category = Column(String(50), nullable=False, index=True)  # 'notifications', 'scan_defaults', 'ui'
     key = Column(String(100), nullable=False, index=True)
     value = Column(JSON, nullable=False)
@@ -168,7 +168,7 @@ class AuditLogDB(Base):
     """Database model for audit logs"""
     __tablename__ = "audit_logs"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(100), nullable=True, index=True)
     action = Column(String(100), nullable=False, index=True)
     resource_type = Column(String(50), nullable=False)
@@ -183,8 +183,8 @@ class StatSnapshotDB(Base):
     """Database model for stats snapshots"""
     __tablename__ = "stat_snapshots"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    scan_id = Column(UUID(as_uuid=True), ForeignKey("scans.id"), nullable=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    scan_id = Column(String(36), ForeignKey("scans.id"), nullable=True, index=True)
     snapshot_type = Column(String(50), nullable=False, index=True)  # 'scan', 'global', 'service'
     metrics = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)

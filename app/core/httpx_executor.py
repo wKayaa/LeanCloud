@@ -41,17 +41,23 @@ class HTTPxExecutor:
             os.path.expanduser("~/.local/bin")
         ]
         
+        # Check config first
+        if hasattr(self.config, 'httpx_path') and self.config.httpx_path:
+            if Path(self.config.httpx_path).exists():
+                return self.config.httpx_path
+        
+        # Check for ProjectDiscovery httpx specifically
+        pd_httpx_path = "/home/runner/go/bin/httpx"
+        if Path(pd_httpx_path).exists():
+            logger.info("Found ProjectDiscovery httpx binary", path=pd_httpx_path)
+            return pd_httpx_path
+        
         # Update PATH temporarily for search
         original_path = os.environ.get('PATH', '')
         extended_path = original_path + ':' + ':'.join(extra_paths)
         os.environ['PATH'] = extended_path
         
         try:
-            # Check config first
-            if hasattr(self.config, 'httpx_path') and self.config.httpx_path:
-                if Path(self.config.httpx_path).exists():
-                    return self.config.httpx_path
-            
             # Check extended PATH
             httpx_path = shutil.which('httpx')
             if httpx_path:
