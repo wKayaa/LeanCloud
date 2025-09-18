@@ -39,6 +39,38 @@ A production-ready HTTP response scanner with a French-themed futuristic web int
 
 ## Quick Start
 
+### 🐳 Docker Deployment (Recommended)
+
+The fastest way to get started is with Docker Compose:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/wKayaa/LeanCloud.git
+cd LeanCloud
+
+# 2. Create environment configuration
+cp .env.example .env
+
+# 3. Customize your settings (optional)
+nano .env  # Update SECRET_KEY, ADMIN_PASSWORD, etc.
+
+# 4. Start all services
+docker compose up -d
+
+# 5. Access the application
+open http://localhost:8000
+```
+
+**Default credentials**: `admin` / `admin123` (you'll be prompted to change this on first login)
+
+The Docker setup includes:
+- **FastAPI Application** (port 8000)
+- **PostgreSQL Database** (persistent storage)
+- **Redis Cache** (pub/sub and rate limiting)
+- **Automatic health checks** and service dependencies
+
+### 🔧 Manual Installation
+
 ### Prerequisites
 - **Python 3.8+** - Required for the FastAPI backend
 - **httpx CLI tool** - The core scanning engine (required for live scanning)
@@ -89,6 +121,52 @@ httpx --help
    - Open: http://localhost:8000
    - Default login: `admin` / `admin123`
    - **Important**: Change password on first login!
+
+### 🛠️ Production Configuration
+
+For production deployments, ensure proper environment configuration:
+
+```bash
+# Required production settings
+SECRET_KEY=your-strong-secret-key-here
+JWT_SECRET_KEY=your-jwt-secret-key-here
+ADMIN_PASSWORD=your-secure-admin-password
+
+# Database (use PostgreSQL for production)
+DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
+
+# Redis (recommended for production)
+REDIS_URL=redis://redis-host:6379/0
+
+# Security settings
+CORS_ORIGINS=https://yourdomain.com,https://scanner.yourdomain.com
+RATE_LIMIT_PER_MINUTE=30
+
+# Performance tuning
+MAX_CONCURRENCY=1000
+MAX_SCAN_RETENTION_DAYS=30
+```
+
+**Security Considerations:**
+- Always change default passwords
+- Use strong, unique secret keys
+- Configure CORS origins appropriately
+- Enable rate limiting for public deployments
+- Use HTTPS in production
+- Regular security updates
+
+### 🔍 Health Monitoring
+
+The application provides comprehensive health endpoints:
+
+- **Health Check**: `GET /api/v1/healthz`
+- **Readiness Check**: `GET /api/v1/readyz` 
+- **Metrics**: `GET /api/v1/metrics` (Prometheus format)
+
+Health status shows component-level information:
+- **Database**: Connection and query health
+- **Redis**: Cache and pub/sub availability
+- **Overall Status**: healthy/degraded/unhealthy
 
 ## French UI Guide
 

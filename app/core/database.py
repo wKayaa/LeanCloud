@@ -237,8 +237,8 @@ async def init_database(database_url: str = "sqlite+aiosqlite:///./httpx_scanner
         raise
 
 
-async def get_db_session() -> AsyncSession:
-    """Get database session"""
+async def get_db_session():
+    """Get database session as dependency"""
     if not async_session_factory:
         raise RuntimeError("Database not initialized")
     
@@ -247,6 +247,13 @@ async def get_db_session() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+
+def get_async_session():
+    """Get async session factory for direct usage"""
+    if not async_session_factory:
+        raise RuntimeError("Database not initialized")
+    return async_session_factory
 
 
 async def cleanup_database():

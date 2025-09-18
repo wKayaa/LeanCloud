@@ -287,8 +287,9 @@ class EnhancedScanner:
         
         # Store in database if available
         try:
-            from .database import get_db_session, ScanDB
-            async with get_db_session() as session:
+            from .database import get_async_session, ScanDB
+            session_factory = get_async_session()
+            async with session_factory() as session:
                 db_scan = ScanDB(
                     id=scan_id,
                     crack_id=crack_id,
@@ -697,8 +698,9 @@ class EnhancedScanner:
         
         # Store in database if available
         try:
-            from .database import get_db_session, FindingDB
-            async with get_db_session() as session:
+            from .database import get_async_session, FindingDB
+            session_factory = get_async_session()
+            async with session_factory() as session:
                 db_finding = FindingDB(
                     id=finding_id,
                     scan_id=scan_id,

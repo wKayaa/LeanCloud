@@ -11,33 +11,61 @@ logger = structlog.get_logger()
 
 
 class RedisManager:
-    """Redis manager for async operations"""
+    """Redis manager for async operations with graceful degradation"""
     
     def __init__(self, redis_url: str):
         self.redis_url = redis_url
         self.pool: Optional[ConnectionPool] = None
         self.client: Optional[redis.Redis] = None
         self.pubsub: Optional[redis.client.PubSub] = None
+        self._healthy = False
+        self._last_health_check = 0
+        self._health_check_interval = 30  # seconds
         
     async def initialize(self):
-        """Initialize Redis connection"""
+        """Initialize Redis connection with retry logic"""
         try:
             self.pool = ConnectionPool.from_url(
                 self.redis_url,
                 max_connections=20,
                 decode_responses=True,
-                health_check_interval=30
+                health_check_interval=30,
+                retry_on_timeout=True,
+                socket_connect_timeout=5,
+                socket_timeout=5
             )
             
             self.client = redis.Redis(connection_pool=self.pool)
             
             # Test connection
             await self.client.ping()
+            self._healthy = True
+            self._last_health_check = asyncio.get_event_loop().time()
             logger.info("Redis connection initialized", url=self.redis_url)
             
         except Exception as e:
+            self._healthy = False
             logger.error("Failed to initialize Redis", error=str(e))
-            raise
+            # Don't raise - allow application to continue in degraded mode
+    
+    async def is_healthy(self) -> bool:
+        """Check if Redis connection is healthy"""
+        current_time = asyncio.get_event_loop().time()
+        
+        # Check if we need to refresh health status
+        if current_time - self._last_health_check > self._health_check_interval:
+            try:
+                if self.client:
+                    await self.client.ping()
+                    self._healthy = True
+                else:
+                    self._healthy = False
+            except Exception:
+                self._healthy = False
+            finally:
+                self._last_health_check = current_time
+        
+        return self._healthy
     
     async def close(self):
         """Close Redis connection"""
@@ -225,27 +253,41 @@ class RedisManager:
     
     # Pub/Sub operations
     async def publish(self, channel: str, message: Any) -> int:
-        """Publish message to channel"""
+        """Publish message to channel with graceful degradation"""
+        if not await self.is_healthy():
+            logger.warning("Redis PUBLISH skipped - Redis unavailable", channel=channel)
+            return 0
+        
         try:
             serialized = json.dumps(message) if not isinstance(message, str) else message
             return await self.client.publish(channel, serialized)
         except Exception as e:
             logger.error("Redis PUBLISH failed", channel=channel, error=str(e))
+            self._healthy = False
             return 0
     
-    async def subscribe(self, *channels: str) -> redis.client.PubSub:
-        """Subscribe to channels"""
+    async def subscribe(self, *channels: str) -> Optional[redis.client.PubSub]:
+        """Subscribe to channels with graceful degradation"""
+        if not await self.is_healthy():
+            logger.warning("Redis SUBSCRIBE skipped - Redis unavailable", channels=channels)
+            return None
+        
         try:
             pubsub = self.client.pubsub()
             await pubsub.subscribe(*channels)
             return pubsub
         except Exception as e:
             logger.error("Redis SUBSCRIBE failed", channels=channels, error=str(e))
-            raise
+            self._healthy = False
+            return None
     
     # Rate limiting
     async def rate_limit(self, key: str, limit: int, window: int) -> bool:
-        """Check rate limit using sliding window"""
+        """Check rate limit using sliding window with graceful degradation"""
+        if not await self.is_healthy():
+            logger.warning("Redis rate limit check skipped - Redis unavailable", key=key)
+            return True  # Allow requests when Redis is down
+        
         try:
             current_time = int(asyncio.get_event_loop().time())
             pipe = self.client.pipeline()
@@ -265,6 +307,7 @@ class RedisManager:
             return count <= limit
         except Exception as e:
             logger.error("Redis rate limit failed", key=key, error=str(e))
+            self._healthy = False
             return True  # Allow on error
     
     # Atomic operations

@@ -14,7 +14,7 @@ import structlog
 from .api.endpoints import router as legacy_api_router
 from .api.endpoints_enhanced import router as api_router
 from .api.websocket_enhanced import websocket_scan_endpoint, websocket_dashboard_endpoint, websocket_endpoint
-from .core.config import config_manager
+from .core.settings import get_settings, validate_settings
 from .core.database import init_database, cleanup_database
 from .core.redis_manager import init_redis, close_redis
 from .core.scanner_enhanced import enhanced_scanner
@@ -50,13 +50,16 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
+# Get settings for middleware configuration
+settings = get_settings()
+
 # Security middleware
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,10 +129,9 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
 
 
 # Add enhanced rate limiting
-config = config_manager.get_config()
 app.add_middleware(
     EnhancedRateLimitMiddleware,
-    calls=config.rate_limit_per_minute,
+    calls=settings.rate_limit_per_minute,
     period=60
 )
 
@@ -243,24 +245,24 @@ async def startup_event():
     logger.info("Starting HTTPx Cloud Scanner v1...")
     
     try:
-        config = config_manager.get_config()
+        settings = get_settings()
         
         # Validate configuration
-        issues = config_manager.validate_config()
+        issues = validate_settings()
         if issues:
             logger.warning("Configuration issues detected", issues=issues)
         
         # Initialize database
         try:
-            await init_database(config_manager.get_database_url())
+            await init_database(settings.database_url)
             logger.info("Database initialized")
         except Exception as e:
             logger.error("Database initialization failed", error=str(e))
             # Continue with in-memory fallback
         
-        # Initialize Redis
+        # Initialize Redis (with graceful degradation)
         try:
-            await init_redis(config_manager.get_redis_url())
+            await init_redis(settings.redis_url)
             logger.info("Redis initialized")
         except Exception as e:
             logger.error("Redis initialization failed", error=str(e))
@@ -279,13 +281,13 @@ async def startup_event():
             'version': '1.0.0',
             'component': 'httpx_cloud_scanner',
             'high_concurrency': 'true',
-            'max_concurrency': str(config.max_concurrency)
+            'max_concurrency': str(settings.max_concurrency)
         })
         
         logger.info("HTTPx Cloud Scanner v1 started successfully",
-                   max_concurrency=config.max_concurrency,
-                   adaptive_concurrency=config.adaptive_concurrency,
-                   backpressure_enabled=config.enable_backpressure)
+                   max_concurrency=settings.max_concurrency,
+                   database_url=settings.database_url,
+                   redis_url=settings.redis_url)
         
     except Exception as e:
         logger.error("Startup failed", error=str(e))

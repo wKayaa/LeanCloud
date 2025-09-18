@@ -129,8 +129,15 @@ async def get_result_details(
 ) -> Hit:
     """Get detailed information for a specific hit"""
     try:
+        # Parse UUID
+        try:
+            import uuid
+            hit_uuid = uuid.UUID(hit_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid hit ID format")
+        
         # Get finding from database
-        query = select(FindingDB).where(FindingDB.id == hit_id)
+        query = select(FindingDB).where(FindingDB.id == hit_uuid)
         result = await session.execute(query)
         finding = result.scalar_one_or_none()
         
