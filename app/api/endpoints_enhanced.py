@@ -15,7 +15,7 @@ from sqlalchemy import select, func, and_, or_
 import structlog
 
 from ..core.auth import get_current_user, require_admin
-from ..core.database import get_db_session, ScanDB, FindingDB, EventDB, AuditLogDB, WordlistDB
+from ..core.database import get_db_session, ScanDB, FindingDB, EventDB, AuditLogDB, ListDB
 from ..core.redis_manager import get_redis
 from ..core.scanner_enhanced import enhanced_scanner
 from ..core.notifications import notification_manager
@@ -520,11 +520,13 @@ async def upload_wordlist(
             f.write(content_str)
         
         # Save to database
-        wordlist_record = WordlistDB(
+        wordlist_record = ListDB(
+            name=file.filename or safe_filename,
             filename=safe_filename,
-            original_filename=file.filename,
-            paths_count=paths_count,
-            file_size=len(content)
+            list_type="wordlist",
+            size=paths_count,
+            file_size=len(content),
+            description=f"Uploaded wordlist with {paths_count} paths"
         )
         session.add(wordlist_record)
         await session.commit()
@@ -550,7 +552,7 @@ async def list_wordlists(session: AsyncSession = Depends(get_db_session)) -> Lis
     """List uploaded wordlists"""
     try:
         result = await session.execute(
-            select(WordlistDB).order_by(WordlistDB.uploaded_at.desc())
+            select(ListDB).where(ListDB.list_type == "wordlist").order_by(ListDB.created_at.desc())
         )
         wordlists = result.scalars().all()
         
@@ -558,10 +560,10 @@ async def list_wordlists(session: AsyncSession = Depends(get_db_session)) -> Lis
             {
                 "id": str(wordlist.id),
                 "filename": wordlist.filename,
-                "original_filename": wordlist.original_filename,
-                "paths_count": wordlist.paths_count,
+                "name": wordlist.name,
+                "size": wordlist.size,
                 "file_size": wordlist.file_size,
-                "uploaded_at": wordlist.uploaded_at.isoformat()
+                "created_at": wordlist.created_at.isoformat()
             }
             for wordlist in wordlists
         ]

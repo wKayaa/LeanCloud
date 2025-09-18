@@ -15,7 +15,7 @@ from .api.endpoints import router as legacy_api_router
 from .api.endpoints_enhanced import router as api_router
 from .api.websocket_enhanced import websocket_scan_endpoint, websocket_dashboard_endpoint, websocket_endpoint
 from .core.config import config_manager
-from .core.database import init_database, close_database
+from .core.database import init_database, cleanup_database
 from .core.redis_manager import init_redis, close_redis
 from .core.scanner_enhanced import enhanced_scanner
 from .core.notifications import notification_manager
@@ -304,7 +304,7 @@ async def shutdown_event():
         logger.info("Redis connection closed")
         
         # Close database
-        await close_database()
+        await cleanup_database()
         logger.info("Database connection closed")
         
         logger.info("HTTPx Cloud Scanner v1 shutdown complete")
