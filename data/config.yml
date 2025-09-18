@@ -1,4 +1,60 @@
+# HTTPx Cloud v1 Phase 1 Configuration
+# Futuristic panel with real-time WebSocket updates, adaptive concurrency, and multi-page UI
+
+# Legacy settings (maintained for compatibility)
 auth_required: true
+first_run: true
+httpx_path: httpx
+max_scan_retention_days: 30
+rate_limit_per_minute: 60
+secret_key: change-me-in-production
+
+# Phase 1: Scanner configuration
+scanner:
+  adaptive_min: 10000    # Minimum concurrency (10k)
+  adaptive_max: 100000   # Maximum concurrency (100k)
+
+# Phase 1: Notification settings
+notifications:
+  telegram:
+    enabled: false
+    bot_token: null
+    chat_id: null
+  slack:
+    enabled: false
+    webhook_url: null
+  discord:
+    enabled: false
+    webhook_url: null
+  webhooks:
+    enabled: false
+    webhook_urls: []
+    webhook_secret: null
+
+# Phase 1: Service validation settings
+validation:
+  providers:
+    aws:
+      safe_mode: true
+    sendgrid:
+      safe_mode: true
+
+# Phase 1: Export settings  
+exports:
+  mask_by_default: true
+
+# Phase 1: Data retention settings
+retention:
+  scans_days: 30
+  logs_days: 90
+
+# Phase 1: UI theme settings
+ui:
+  theme:
+    name: futuristic
+    dark_mode: true
+
+# Legacy pattern definitions (kept for backward compatibility)
 default_patterns:
 - description: AWS Access Key ID
   name: AWS Access Key
@@ -24,8 +80,3 @@ default_patterns:
 - description: AWS SES SMTP Endpoint
   name: AWS SES SMTP
   pattern: email-smtp\.(us|eu|ap|ca|cn|sa)-(central|(north|south)?(west|east)?)-[0-9]{1}\.amazonaws\.com
-first_run: true
-httpx_path: httpx
-max_scan_retention_days: 30
-rate_limit_per_minute: 60
-secret_key: change-me-in-production

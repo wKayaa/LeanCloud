@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -11,15 +11,35 @@ from pathlib import Path
 import asyncio
 import structlog
 
+# Phase 1 imports
+from .api.scans import router as scans_router
+from .api.lists import router as lists_router  
+from .api.ipgen import router as ipgen_router
+from .api.settings import router as settings_router
+from .api.health import router as health_router
+from .api.ws import websocket_scan_handler, websocket_dashboard_handler
+from .core.stats_manager import stats_manager
+from .core.adaptive import adaptive_controller
+
+# Legacy imports (for backward compatibility)
 from .api.endpoints import router as legacy_api_router
-from .api.endpoints_enhanced import router as api_router
-from .api.websocket_enhanced import websocket_scan_endpoint, websocket_dashboard_endpoint, websocket_endpoint
-from .core.config import config_manager
-from .core.database import init_database, close_database
-from .core.redis_manager import init_redis, close_redis
-from .core.scanner_enhanced import enhanced_scanner
-from .core.notifications import notification_manager
-from .core.metrics import metrics
+try:
+    from .api.endpoints_enhanced import router as api_router
+    from .api.websocket_enhanced import websocket_scan_endpoint, websocket_dashboard_endpoint, websocket_endpoint
+    from .core.config import config_manager
+    from .core.database import init_database, close_database
+    from .core.redis_manager import init_redis, close_redis
+    from .core.scanner_enhanced import enhanced_scanner
+    from .core.notifications import notification_manager
+    from .core.metrics import metrics
+except ImportError:
+    # Fallback if enhanced modules don't exist
+    api_router = None
+    websocket_scan_endpoint = None
+    websocket_dashboard_endpoint = None
+    websocket_endpoint = None
+    config_manager = None
+    enhanced_scanner = None
 
 # Configure structured logging
 structlog.configure(
@@ -118,33 +138,63 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Add enhanced rate limiting
-config = config_manager.get_config()
-app.add_middleware(
-    EnhancedRateLimitMiddleware,
-    calls=config.rate_limit_per_minute,
-    period=60
-)
+# Add enhanced rate limiting (only if config_manager is available)
+try:
+    config = config_manager.get_config() if config_manager else None
+    app.add_middleware(
+        EnhancedRateLimitMiddleware,
+        calls=config.rate_limit_per_minute if config else 60,
+        period=60
+    )
+except:
+    # Fallback rate limiting
+    app.add_middleware(
+        EnhancedRateLimitMiddleware,
+        calls=60,
+        period=60
+    )
 
-# Include API routes
-app.include_router(api_router, prefix="/api/v1", tags=["v1"])
-app.include_router(legacy_api_router, prefix="/api/v1", tags=["legacy"])  # Backward compatibility
+# Include Phase 1 API routes
+app.include_router(scans_router, prefix="/api/v1")
+app.include_router(lists_router, prefix="/api/v1") 
+app.include_router(ipgen_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
+app.include_router(health_router, prefix="/api/v1")
 
-# Enhanced WebSocket endpoints
-@app.websocket("/ws")
-async def websocket_main(websocket: WebSocket, token: str = None):
-    """Main WebSocket endpoint (backward compatibility)"""
-    await websocket_endpoint(websocket, token)
+# Include legacy routes for backward compatibility
+app.include_router(legacy_api_router, prefix="/api/v1", tags=["legacy"])
+if api_router:
+    app.include_router(api_router, prefix="/api/v1", tags=["enhanced"])
 
+# Phase 1 WebSocket endpoints
 @app.websocket("/ws/scans/{scan_id}")
-async def websocket_scan(websocket: WebSocket, scan_id: str, token: str = None):
-    """Scan-specific WebSocket endpoint"""
-    await websocket_scan_endpoint(websocket, scan_id, token)
+async def websocket_scan(websocket: WebSocket, scan_id: str):
+    """Phase 1 scan-specific WebSocket endpoint"""
+    await websocket_scan_handler(websocket, scan_id)
 
 @app.websocket("/ws/dashboard")
-async def websocket_dashboard(websocket: WebSocket, token: str = None):
-    """Dashboard WebSocket endpoint"""
-    await websocket_dashboard_endpoint(websocket, token)
+async def websocket_dashboard_ws(websocket: WebSocket):
+    """Phase 1 dashboard WebSocket endpoint"""
+    await websocket_dashboard_handler(websocket)
+
+# Legacy WebSocket endpoints (backward compatibility)
+if websocket_endpoint:
+    @app.websocket("/ws")
+    async def websocket_main(websocket: WebSocket, token: str = None):
+        """Main WebSocket endpoint (backward compatibility)"""
+        await websocket_endpoint(websocket, token)
+
+if websocket_scan_endpoint:
+    @app.websocket("/ws/scans/{scan_id}/legacy")
+    async def websocket_scan_legacy(websocket: WebSocket, scan_id: str, token: str = None):
+        """Legacy scan WebSocket endpoint"""
+        await websocket_scan_endpoint(websocket, scan_id, token)
+
+if websocket_dashboard_endpoint:
+    @app.websocket("/ws/dashboard/legacy")
+    async def websocket_dashboard_legacy(websocket: WebSocket, token: str = None):
+        """Legacy dashboard WebSocket endpoint"""
+        await websocket_dashboard_endpoint(websocket, token)
 
 # Mount static files
 static_path = Path(__file__).parent / "static"
@@ -233,81 +283,107 @@ async def health():
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    logger.info("Starting HTTPx Cloud Scanner v1...")
+    logger.info("Starting HTTPx Cloud Scanner v1 Phase 1...")
     
     try:
-        config = config_manager.get_config()
+        # Initialize Phase 1 components
+        await stats_manager.start()
+        logger.info("StatsManager initialized")
         
-        # Validate configuration
-        issues = config_manager.validate_config()
-        if issues:
-            logger.warning("Configuration issues detected", issues=issues)
+        await adaptive_controller.start()
+        logger.info("AdaptiveController initialized")
         
-        # Initialize database
-        try:
-            await init_database(config_manager.get_database_url())
-            logger.info("Database initialized")
-        except Exception as e:
-            logger.error("Database initialization failed", error=str(e))
-            # Continue with in-memory fallback
-        
-        # Initialize Redis
-        try:
-            await init_redis(config_manager.get_redis_url())
-            logger.info("Redis initialized")
-        except Exception as e:
-            logger.error("Redis initialization failed", error=str(e))
-            # Continue without Redis (degraded mode)
-        
-        # Initialize enhanced scanner
-        await enhanced_scanner.initialize()
-        logger.info("Enhanced scanner initialized")
-        
-        # Initialize notification manager
-        await notification_manager.initialize()
-        logger.info("Notification manager initialized")
-        
-        # Update service info metric
-        metrics.service_info.info({
-            'version': '1.0.0',
-            'component': 'httpx_cloud_scanner',
-            'high_concurrency': 'true',
-            'max_concurrency': str(config.max_concurrency)
-        })
-        
-        logger.info("HTTPx Cloud Scanner v1 started successfully",
-                   max_concurrency=config.max_concurrency,
-                   adaptive_concurrency=config.adaptive_concurrency,
-                   backpressure_enabled=config.enable_backpressure)
+        # Initialize legacy components if available
+        if config_manager:
+            config = config_manager.get_config()
+            
+            # Validate configuration
+            issues = config_manager.validate_config() if hasattr(config_manager, 'validate_config') else []
+            if issues:
+                logger.warning("Configuration issues detected", issues=issues)
+            
+            # Initialize database
+            try:
+                if hasattr(config_manager, 'get_database_url') and init_database:
+                    await init_database(config_manager.get_database_url())
+                    logger.info("Database initialized")
+            except Exception as e:
+                logger.error("Database initialization failed", error=str(e))
+                # Continue with in-memory fallback
+            
+            # Initialize Redis
+            try:
+                if hasattr(config_manager, 'get_redis_url') and init_redis:
+                    await init_redis(config_manager.get_redis_url())
+                    logger.info("Redis initialized")
+            except Exception as e:
+                logger.error("Redis initialization failed", error=str(e))
+                # Continue without Redis (degraded mode)
+            
+            # Initialize enhanced scanner
+            if enhanced_scanner and hasattr(enhanced_scanner, 'initialize'):
+                await enhanced_scanner.initialize()
+                logger.info("Enhanced scanner initialized")
+            
+            # Initialize notification manager
+            if notification_manager and hasattr(notification_manager, 'initialize'):
+                await notification_manager.initialize()
+                logger.info("Notification manager initialized")
+            
+            # Update service info metric
+            if metrics and hasattr(metrics, 'service_info'):
+                metrics.service_info.info({
+                    'version': '1.0.0-phase1',
+                    'component': 'httpx_cloud_scanner',
+                    'high_concurrency': 'true',
+                    'max_concurrency': str(getattr(config, 'max_concurrency', 100000))
+                })
+            
+            logger.info("HTTPx Cloud Scanner v1 Phase 1 started successfully",
+                       max_concurrency=getattr(config, 'max_concurrency', 100000),
+                       adaptive_concurrency=getattr(config, 'adaptive_concurrency', True))
+        else:
+            logger.info("HTTPx Cloud Scanner v1 Phase 1 started successfully (minimal mode)")
         
     except Exception as e:
         logger.error("Startup failed", error=str(e))
-        raise
+        
+    except Exception as e:
+        logger.error("Startup failed", error=str(e))
+        # Continue with degraded functionality
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    logger.info("Shutting down HTTPx Cloud Scanner v1...")
+    logger.info("Shutting down HTTPx Cloud Scanner v1 Phase 1...")
     
     try:
-        # Close enhanced scanner
-        await enhanced_scanner.close()
-        logger.info("Enhanced scanner closed")
+        # Stop Phase 1 components
+        await stats_manager.stop()
+        logger.info("StatsManager stopped")
         
-        # Close notification manager
-        await notification_manager.close()
-        logger.info("Notification manager closed")
+        await adaptive_controller.stop()
+        logger.info("AdaptiveController stopped")
         
-        # Close Redis
-        await close_redis()
-        logger.info("Redis connection closed")
+        # Close legacy components if available
+        if enhanced_scanner and hasattr(enhanced_scanner, 'close'):
+            await enhanced_scanner.close()
+            logger.info("Enhanced scanner closed")
         
-        # Close database
-        await close_database()
-        logger.info("Database connection closed")
+        if notification_manager and hasattr(notification_manager, 'close'):
+            await notification_manager.close()
+            logger.info("Notification manager closed")
         
-        logger.info("HTTPx Cloud Scanner v1 shutdown complete")
+        if close_redis:
+            await close_redis()
+            logger.info("Redis connection closed")
+        
+        if close_database:
+            await close_database()
+            logger.info("Database connection closed")
+        
+        logger.info("HTTPx Cloud Scanner v1 Phase 1 shutdown complete")
         
     except Exception as e:
         logger.error("Shutdown error", error=str(e))
