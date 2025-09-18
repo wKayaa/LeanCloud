@@ -8,19 +8,22 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 import structlog
 
 from ..core.auth import get_current_user, require_admin
-from ..core.database import get_db_session, ScanDB, FindingDB, EventDB, AuditLogDB, WordlistDB
+from ..core.database import get_db_session, ScanDB, FindingDB, EventDB, AuditLogDB, WordlistDB, ListDB, IPListDB
 from ..core.redis_manager import get_redis
 from ..core.scanner_enhanced import enhanced_scanner
 from ..core.notifications import notification_manager
 from ..core.metrics import metrics
 from ..core.config import config_manager
+from ..core.lists_manager import lists_manager
+from ..core.ip_generator import ip_list_manager, IPGenerator
+from ..core.masking import log_audit_event, MaskingProfile, sanitize_for_export, mask_finding_evidence
 from ..core.models import (
     ScanRequest, ScanResult, ScanControlRequest, Finding, 
     HitExportRequest, NotificationConfig, UserPreferences,
@@ -717,3 +720,554 @@ async def update_settings(updates: Dict[str, Any]) -> Dict[str, str]:
     except Exception as e:
         logger.error("Failed to update settings", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Lists management endpoints
+@router.get("/lists", dependencies=[Depends(get_current_user)])
+async def list_lists(
+    list_type: Optional[str] = Query(None, description="Filter by list type"),
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+) -> Dict[str, Any]:
+    """List all stored lists with pagination"""
+    try:
+        lists = await lists_manager.list_lists(list_type, limit, offset)
+        stats = await lists_manager.get_list_statistics()
+        
+        return {
+            "lists": lists,
+            "statistics": stats,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(lists)
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to list lists", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/lists/upload", dependencies=[Depends(get_current_user)])
+async def upload_list(
+    request: Request,
+    name: str = Query(..., description="List name"),
+    list_type: str = Query("wordlist", description="List type (wordlist, targets, ips)"),
+    description: Optional[str] = Query(None, description="List description"),
+    file: UploadFile = File(...)
+) -> Dict[str, Any]:
+    """Upload a new list"""
+    try:
+        # Read file content
+        content = await file.read()
+        
+        # Validate file size (max 100MB)
+        if len(content) > 100 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 100MB)")
+        
+        # Upload and store list
+        result = await lists_manager.upload_list(
+            name=name,
+            original_filename=file.filename or "unknown",
+            file_content=content,
+            list_type=list_type,
+            description=description
+        )
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="upload_list",
+            user_id=user.get("username"),
+            resource_type="list",
+            resource_id=result["id"],
+            details={"name": name, "type": list_type, "size": len(content)},
+            ip_address=request.client.host
+        )
+        
+        logger.info("List uploaded", name=name, list_id=result["id"])
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to upload list", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/lists/{list_id}", dependencies=[Depends(get_current_user)])
+async def get_list(list_id: str) -> Dict[str, Any]:
+    """Get specific list details"""
+    try:
+        list_info = await lists_manager.get_list(list_id)
+        
+        if not list_info:
+            raise HTTPException(status_code=404, detail="List not found")
+        
+        return list_info
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/lists/{list_id}/preview", dependencies=[Depends(get_current_user)])
+async def preview_list(
+    list_id: str, 
+    lines: int = Query(100, ge=1, le=1000, description="Number of lines to preview")
+) -> Dict[str, Any]:
+    """Preview list content"""
+    try:
+        list_info = await lists_manager.get_list(list_id)
+        if not list_info:
+            raise HTTPException(status_code=404, detail="List not found")
+        
+        content = await lists_manager.get_list_content(list_id, max_lines=lines)
+        if content is None:
+            raise HTTPException(status_code=404, detail="List file not found")
+        
+        return {
+            "list_info": list_info,
+            "preview_lines": content,
+            "total_preview_lines": len(content),
+            "truncated": len(content) >= lines
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to preview list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/lists/{list_id}/download", dependencies=[Depends(get_current_user)])
+async def download_list(request: Request, list_id: str) -> FileResponse:
+    """Download list file"""
+    try:
+        list_info = await lists_manager.get_list(list_id)
+        if not list_info:
+            raise HTTPException(status_code=404, detail="List not found")
+        
+        filepath = lists_manager.get_file_path(list_info['filename'])
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="List file not found")
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="download_list",
+            user_id=user.get("username"),
+            resource_type="list",
+            resource_id=list_id,
+            details={"name": list_info["name"]},
+            ip_address=request.client.host
+        )
+        
+        return FileResponse(
+            path=str(filepath),
+            filename=list_info['original_filename'],
+            media_type='text/plain'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to download list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/lists/{list_id}", dependencies=[Depends(get_current_user)])
+async def update_list(
+    request: Request,
+    list_id: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update list metadata"""
+    try:
+        result = await lists_manager.update_list(list_id, name, description)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="List not found")
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="update_list",
+            user_id=user.get("username"),
+            resource_type="list",
+            resource_id=list_id,
+            details={"name": name, "description": description},
+            ip_address=request.client.host
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/lists/{list_id}", dependencies=[Depends(require_admin)])
+async def delete_list(request: Request, list_id: str) -> Dict[str, str]:
+    """Delete a list"""
+    try:
+        # Get list info for audit
+        list_info = await lists_manager.get_list(list_id)
+        
+        success = await lists_manager.delete_list(list_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="List not found")
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="delete_list",
+            user_id=user.get("username"),
+            resource_type="list",
+            resource_id=list_id,
+            details={"name": list_info["name"] if list_info else "unknown"},
+            ip_address=request.client.host
+        )
+        
+        return {"message": "List deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to delete list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# IP Generator endpoints
+@router.get("/ipgen", dependencies=[Depends(get_current_user)])
+async def list_ip_lists(
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+) -> Dict[str, Any]:
+    """List generated IP lists"""
+    try:
+        ip_lists = await ip_list_manager.list_ip_lists(limit, offset)
+        
+        return {
+            "ip_lists": ip_lists,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(ip_lists)
+            }
+        }
+        
+    except Exception as e:
+        logger.error("Failed to list IP lists", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ipgen/estimate", dependencies=[Depends(get_current_user)])
+async def estimate_ip_generation(
+    cidrs: List[str] = Query(..., description="CIDR ranges"),
+    count: int = Query(..., ge=1, le=1000000, description="Number of IPs to generate")
+) -> Dict[str, Any]:
+    """Estimate IP generation feasibility and time"""
+    try:
+        generator = IPGenerator()
+        estimation = generator.estimate_generation_time(cidrs, count)
+        
+        return estimation
+        
+    except Exception as e:
+        logger.error("Failed to estimate IP generation", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ipgen/preview", dependencies=[Depends(get_current_user)])
+async def preview_ip_generation(
+    cidrs: List[str] = Query(..., description="CIDR ranges"),
+    count: int = Query(10, ge=1, le=100, description="Number of preview IPs"),
+    exclude_private: bool = Query(True, description="Exclude private IP ranges"),
+    exclude_reserved: bool = Query(True, description="Exclude reserved IP ranges")
+) -> Dict[str, Any]:
+    """Preview IP generation"""
+    try:
+        generator = IPGenerator()
+        preview_ips = generator.preview_generation(cidrs, count, exclude_private, exclude_reserved)
+        
+        return {
+            "preview_ips": preview_ips,
+            "count": len(preview_ips),
+            "cidrs": cidrs,
+            "exclude_private": exclude_private,
+            "exclude_reserved": exclude_reserved
+        }
+        
+    except Exception as e:
+        logger.error("Failed to preview IP generation", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ipgen", dependencies=[Depends(get_current_user)])
+async def generate_ip_list(
+    request: Request,
+    name: str = Query(..., description="IP list name"),
+    description: Optional[str] = Query(None, description="IP list description"),
+    cidrs: List[str] = Query(..., description="CIDR ranges"),
+    count: int = Query(..., ge=1, le=1000000, description="Number of IPs to generate"),
+    exclude_private: bool = Query(True, description="Exclude private IP ranges"),
+    exclude_reserved: bool = Query(True, description="Exclude reserved IP ranges")
+) -> Dict[str, Any]:
+    """Generate and store new IP list"""
+    try:
+        result = await ip_list_manager.create_ip_list(
+            name=name,
+            description=description,
+            cidrs=cidrs,
+            count=count,
+            exclude_private=exclude_private,
+            exclude_reserved=exclude_reserved
+        )
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="generate_ip_list",
+            user_id=user.get("username"),
+            resource_type="ip_list",
+            resource_id=result["id"],
+            details={"name": name, "count": count, "cidrs": cidrs},
+            ip_address=request.client.host
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to generate IP list", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ipgen/{list_id}", dependencies=[Depends(get_current_user)])
+async def get_ip_list(list_id: str) -> Dict[str, Any]:
+    """Get IP list details"""
+    try:
+        result = await ip_list_manager.get_ip_list(list_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="IP list not found")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get IP list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/ipgen/{list_id}", dependencies=[Depends(require_admin)])
+async def delete_ip_list(request: Request, list_id: str) -> Dict[str, str]:
+    """Delete IP list"""
+    try:
+        # Get list info for audit
+        list_info = await ip_list_manager.get_ip_list(list_id)
+        
+        success = await ip_list_manager.delete_ip_list(list_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="IP list not found")
+        
+        # Audit log
+        user = await get_current_user(request)
+        await log_audit_event(
+            action="delete_ip_list",
+            user_id=user.get("username"),
+            resource_type="ip_list",
+            resource_id=list_id,
+            details={"name": list_info["name"] if list_info else "unknown"},
+            ip_address=request.client.host
+        )
+        
+        return {"message": "IP list deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to delete IP list", list_id=list_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Enhanced scan control endpoints
+@router.post("/scans/{scan_id}/control", dependencies=[Depends(get_current_user)])
+async def control_scan(
+    request: Request,
+    scan_id: str,
+    action: str = Query(..., regex="^(start|pause|resume|stop)$")
+) -> Dict[str, Any]:
+    """Control scan execution (start, pause, resume, stop)"""
+    try:
+        user = await get_current_user(request)
+        
+        if action == "start":
+            result = await enhanced_scanner.start_scan_by_id(scan_id)
+        elif action == "pause":
+            result = await enhanced_scanner.pause_scan(scan_id)
+        elif action == "resume":
+            result = await enhanced_scanner.resume_scan(scan_id)
+        elif action == "stop":
+            result = await enhanced_scanner.stop_scan(scan_id)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid action")
+        
+        # Audit log
+        await log_audit_event(
+            action=f"scan_{action}",
+            user_id=user.get("username"),
+            resource_type="scan",
+            resource_id=scan_id,
+            details={"action": action},
+            ip_address=request.client.host
+        )
+        
+        return {
+            "message": f"Scan {action} successful",
+            "scan_id": scan_id,
+            "status": result.get("status", "unknown")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to control scan", scan_id=scan_id, action=action, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Enhanced export endpoints with masking
+@router.get("/scans/{scan_id}/export", dependencies=[Depends(get_current_user)])
+async def export_scan_findings(
+    request: Request,
+    scan_id: str,
+    format: str = Query("csv", regex="^(csv|json|jsonl)$"),
+    reveal: bool = Query(False, description="Unmask sensitive data (admin only)"),
+    masking_profile: str = Query("full", regex="^(full|partial|minimal)$")
+) -> StreamingResponse:
+    """Export scan findings with masking support"""
+    try:
+        user = await get_current_user(request)
+        
+        # Only admins can reveal unmasked data
+        if reveal and not user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="Admin privileges required to reveal unmasked data")
+        
+        # Get findings from database
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(FindingDB).where(FindingDB.scan_id == scan_id)
+            )
+            findings = result.scalars().all()
+        
+        if not findings:
+            raise HTTPException(status_code=404, detail="No findings found for this scan")
+        
+        # Convert to dict and apply masking
+        findings_data = []
+        for finding in findings:
+            finding_dict = {
+                "scan_id": str(finding.scan_id),
+                "crack_id": finding.crack_id,
+                "service": finding.service,
+                "pattern_id": finding.pattern_id,
+                "url": finding.url,
+                "source_url": finding.source_url,
+                "evidence": finding.evidence if reveal else finding.evidence_masked,
+                "works": finding.works,
+                "confidence": finding.confidence,
+                "severity": finding.severity,
+                "regions": finding.regions,
+                "capabilities": finding.capabilities,
+                "first_seen": finding.first_seen.isoformat(),
+                "last_seen": finding.last_seen.isoformat()
+            }
+            findings_data.append(finding_dict)
+        
+        # Apply masking profile if not revealing
+        if not reveal:
+            findings_data = sanitize_for_export(findings_data, masking_profile)
+        
+        # Audit log
+        await log_audit_event(
+            action="export_findings",
+            user_id=user.get("username"),
+            resource_type="scan",
+            resource_id=scan_id,
+            details={
+                "format": format,
+                "reveal": reveal,
+                "masking_profile": masking_profile,
+                "findings_count": len(findings_data)
+            },
+            ip_address=request.client.host
+        )
+        
+        # Generate export based on format
+        if format == "csv":
+            return _generate_csv_export(findings_data, scan_id)
+        elif format == "json":
+            return _generate_json_export(findings_data, scan_id)
+        elif format == "jsonl":
+            return _generate_jsonl_export(findings_data, scan_id)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to export findings", scan_id=scan_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _generate_csv_export(findings: List[Dict], scan_id: str) -> StreamingResponse:
+    """Generate CSV export"""
+    def generate():
+        output = io.StringIO()
+        if findings:
+            writer = csv.DictWriter(output, fieldnames=findings[0].keys())
+            writer.writeheader()
+            for finding in findings:
+                writer.writerow(finding)
+            output.seek(0)
+            yield output.getvalue()
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=scan_{scan_id}_findings.csv"}
+    )
+
+
+def _generate_json_export(findings: List[Dict], scan_id: str) -> StreamingResponse:
+    """Generate JSON export"""
+    def generate():
+        yield json.dumps(findings, indent=2)
+    
+    return StreamingResponse(
+        generate(),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=scan_{scan_id}_findings.json"}
+    )
+
+
+def _generate_jsonl_export(findings: List[Dict], scan_id: str) -> StreamingResponse:
+    """Generate JSONL export"""
+    def generate():
+        for finding in findings:
+            yield json.dumps(finding) + "\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f"attachment; filename=scan_{scan_id}_findings.jsonl"}
+    )

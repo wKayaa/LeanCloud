@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTPx Scanner</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Login Modal -->
+        <div id="loginModal" class="modal">
+            <div class="modal-content">
+                <h2>Login to HTTPx Scanner</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </form>
+                <div id="loginError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Password Change Modal -->
+        <div id="passwordModal" class="modal">
+            <div class="modal-content">
+                <h2>Change Password (Required)</h2>
+                <p>This is your first login. Please change your password.</p>
+                <form id="passwordForm">
+                    <div class="form-group">
+                        <label for="oldPassword">Current Password:</label>
+                        <input type="password" id="oldPassword" name="oldPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">New Password:</label>
+                        <input type="password" id="newPassword" name="newPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirm New Password:</label>
+                        <input type="password" id="confirmPassword" name="confirmPassword" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Change Password</button>
+                </form>
+                <div id="passwordError" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div id="mainApp" class="main-app" style="display: none;">
+            <!-- Header -->
+            <header class="app-header">
+                <h1>HTTPx Scanner</h1>
+                <div class="user-info">
+                    <span id="userInfo"></span>
+                    <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+                </div>
+            </header>
+
+            <!-- Navigation -->
+            <nav class="app-nav">
+                <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+                <button class="nav-btn" data-tab="scan">New Scan</button>
+                <button class="nav-btn" data-tab="results">Results</button>
+                <button class="nav-btn" data-tab="config">Config</button>
+            </nav>
+
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Total Scans</h3>
+                        <div class="stat-number" id="totalScans">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Running Scans</h3>
+                        <div class="stat-number" id="runningScans">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total Findings</h3>
+                        <div class="stat-number" id="totalFindings">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Success Rate</h3>
+                        <div class="stat-number" id="successRate">0%</div>
+                    </div>
+                </div>
+
+                <div class="recent-scans">
+                    <h3>Recent Scans</h3>
+                    <div id="recentScansList" class="scans-list"></div>
+                </div>
+
+                <div class="resource-monitoring">
+                    <h3>System Resources</h3>
+                    <div class="resource-grid">
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">🔥</span>
+                                <span class="resource-title">CPU Usage</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="cpuUsage" class="resource-number">23%</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="cpuBar" style="width: 23%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">💾</span>
+                                <span class="resource-title">Memory</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="ramUsage" class="resource-number">1.2GB</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="ramBar" style="width: 45%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">🌐</span>
+                                <span class="resource-title">Network I/O</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="networkIO" class="resource-number">12MB/s</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="networkBar" style="width: 67%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="resource-card">
+                            <div class="resource-header">
+                                <span class="resource-icon">⚡</span>
+                                <span class="resource-title">Throughput</span>
+                            </div>
+                            <div class="resource-value">
+                                <span id="throughput" class="resource-number">1,247/sec</span>
+                                <div class="resource-bar">
+                                    <div class="resource-fill" id="throughputBar" style="width: 82%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Scan Tab -->
+            <div id="scan" class="tab-content">
+                <div class="scan-form-container">
+                    <h3>Start New Scan</h3>
+                    <form id="scanForm">
+                        <div class="form-group">
+                            <label for="targets">Targets (one per line):</label>
+                            <textarea id="targets" name="targets" rows="5" placeholder="example.com&#10;https://target.com" required></textarea>
+                            <button type="button" id="uploadTargetsBtn" class="btn btn-secondary">Upload File</button>
+                            <input type="file" id="targetsFile" accept=".txt,.csv" style="display: none;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="wordlist">Wordlist:</label>
+                            <select id="wordlist" name="wordlist">
+                                <option value="paths.txt">Default Wordlist</option>
+                            </select>
+                            <button type="button" id="uploadWordlistBtn" class="btn btn-secondary">Upload Custom</button>
+                            <input type="file" id="wordlistFile" accept=".txt" style="display: none;">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Module Selection:</label>
+                            <div class="module-grid">
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="aws" checked>
+                                    <span class="module-icon">☁️</span>
+                                    <span class="module-name">AWS</span>
+                                    <span class="module-desc">Access Keys, STS Tokens</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="sendgrid" checked>
+                                    <span class="module-icon">📧</span>
+                                    <span class="module-name">SendGrid</span>
+                                    <span class="module-desc">API Keys</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="smtp" checked>
+                                    <span class="module-icon">📮</span>
+                                    <span class="module-name">SMTP</span>
+                                    <span class="module-desc">Credentials</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="mailgun">
+                                    <span class="module-icon">🔫</span>
+                                    <span class="module-name">Mailgun</span>
+                                    <span class="module-desc">API Keys</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="twilio">
+                                    <span class="module-icon">📱</span>
+                                    <span class="module-name">Twilio</span>
+                                    <span class="module-desc">Account SIDs</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="docker">
+                                    <span class="module-icon">🐳</span>
+                                    <span class="module-name">Docker</span>
+                                    <span class="module-desc">Exposed APIs</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="k8s">
+                                    <span class="module-icon">⚓</span>
+                                    <span class="module-name">Kubernetes</span>
+                                    <span class="module-desc">API Access</span>
+                                </label>
+                                <label class="module-item">
+                                    <input type="checkbox" name="modules" value="stripe">
+                                    <span class="module-icon">💳</span>
+                                    <span class="module-name">Stripe</span>
+                                    <span class="module-desc">Live Keys</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="concurrency">Concurrency:</label>
+                                <input type="number" id="concurrency" name="concurrency" value="50" min="1" max="200">
+                            </div>
+                            <div class="form-group">
+                                <label for="timeout">Timeout (seconds):</label>
+                                <input type="number" id="timeout" name="timeout" value="10" min="1" max="60">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="rateLimit">Rate Limit (req/sec):</label>
+                                <input type="number" id="rateLimit" name="rateLimit" value="100" min="1" max="1000">
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="followRedirects" name="followRedirects" checked>
+                                    Follow Redirects
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Start Scan</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Results Tab -->
+            <div id="results" class="tab-content">
+                <div class="results-header">
+                    <h3>Scan Results</h3>
+                    <button id="refreshResults" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div id="scansList" class="scans-list"></div>
+            </div>
+
+            <!-- Config Tab -->
+            <div id="config" class="tab-content">
+                <h3>Configuration</h3>
+                <div id="configForm" class="config-form">
+                    <p>Configuration management will be available here.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Logs Modal -->
+        <div id="logsModal" class="modal">
+            <div class="modal-content large">
+                <div class="modal-header">
+                    <h3>Live Scan Logs</h3>
+                    <button class="close-btn" onclick="closeLogs()">&times;</button>
+                </div>
+                <div id="logsContainer" class="logs-container"></div>
+            </div>
+        </div>
+
+        <!-- Findings Modal -->
+        <div id="findingsModal" class="modal">
+            <div class="modal-content large">
+                <div class="modal-header">
+                    <h3>Scan Findings</h3>
+                    <div class="modal-actions">
+                        <button id="exportJson" class="btn btn-secondary">Export JSON</button>
+                        <button id="exportCsv" class="btn btn-secondary">Export CSV</button>
+                        <button class="close-btn" onclick="closeFindings()">&times;</button>
+                    </div>
+                </div>
+                <div id="findingsContainer" class="findings-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
