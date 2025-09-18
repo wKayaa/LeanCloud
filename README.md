@@ -40,8 +40,28 @@ A production-ready HTTP response scanner with a French-themed futuristic web int
 ## Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- httpx CLI tool installed (`go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest`)
+- **Python 3.8+** - Required for the FastAPI backend
+- **httpx CLI tool** - The core scanning engine (required for live scanning)
+- **Optional**: Redis (for caching and rate limiting)
+- **Optional**: PostgreSQL (for persistent storage)
+
+### HTTPx CLI Installation
+The application requires ProjectDiscovery's httpx CLI tool for live scanning:
+
+```bash
+# Install httpx CLI (Go required)
+go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+
+# Or download pre-compiled binary
+wget https://github.com/projectdiscovery/httpx/releases/latest/download/httpx_linux_amd64.zip
+unzip httpx_linux_amd64.zip
+sudo mv httpx /usr/local/bin/
+
+# Verify installation
+httpx --help
+```
+
+**Note**: Without httpx CLI, the application will start but scans will fail with a clear error message. The UI will display a warning badge if httpx is not detected.
 
 ### Installation
 
@@ -98,6 +118,60 @@ Advanced results management with French filtering:
   - Trier par: Date (récent/ancien)
 - **Details Drawer**: Click any hit to view masked credentials and validation status
 - **Actions**: Export results, Supprimer Tout (Delete All - admin only)
+
+## Live Scanning Flow
+
+### Real-time httpx CLI Integration
+HTTPx Cloud Scanner provides live execution of the httpx CLI with real-time telemetry:
+
+1. **Scan Configuration**: Fill out the scan form with targets, wordlists, and options
+2. **httpx Command Generation**: The system automatically builds httpx commands:
+   ```bash
+   httpx -l targets.txt -json -silent -no-color -timeout 10 -rl 100 -threads 50
+   ```
+3. **Live Execution**: httpx runs as subprocess with stdout/stderr parsing
+4. **Real-time Updates**: WebSocket streams progress, logs, and results instantly
+5. **Scan Control**: Pause/stop functionality sends signals to httpx process
+
+### Example Scan Flow
+```bash
+# 1. Target list generated from form input
+echo "example.com" > /tmp/targets.txt
+echo "httpbin.org" >> /tmp/targets.txt
+
+# 2. URLs built from targets + wordlist
+https://example.com/.well-known/security.txt
+https://example.com/robots.txt
+https://httpbin.org/.env
+https://httpbin.org/config.json
+
+# 3. httpx command executed
+httpx -l /tmp/targets.txt -json -silent -timeout 10 -rl 100
+
+# 4. Live JSON parsing for hits detection
+{"url": "https://httpbin.org/json", "status_code": 200, "content_length": 429}
+```
+
+### WebSocket Events
+The UI receives real-time updates via WebSocket:
+- **SCAN_PROGRESS**: URLs processed, throughput, ETA
+- **SCAN_LOG**: httpx stdout/stderr messages  
+- **SCAN_HIT**: Detected interesting responses
+- **SCAN_STATUS**: Started/completed/stopped/failed
+
+### Fallback Mechanisms
+- **Polling Fallback**: If WebSocket fails, automatic polling of `/api/v1/scans/{id}/progress`
+- **Redis Optional**: Rate limiting and caching work without Redis
+- **Graceful Degradation**: Missing httpx shows clear warning, other features continue
+
+### Troubleshooting Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|---------|
+| "httpx binary not found" | httpx CLI not installed | Install httpx CLI or configure `httpx_path` in config |
+| Scans fail to start | Permission issues | Check httpx binary permissions: `chmod +x /usr/local/bin/httpx` |
+| Low performance | ulimit too low | Increase limits: `ulimit -n 65536` |
+| WebSocket disconnects | Network/proxy issues | System falls back to polling automatically |
 
 ### Gestion des Domaines
 Domain list management and Grabber control:
