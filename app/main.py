@@ -71,6 +71,8 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         self.period = period
         self.clients = {}
         self.redis_available = False
+        self.last_redis_check = 0
+        self.retry_interval = 30  # Retry Redis every 30 seconds
     
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host
@@ -79,24 +81,37 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/healthz", "/metrics"]:
             return await call_next(request)
         
+        now = time.time()
+        
+        # Check if we should try Redis again after backoff period
+        redis_retry_allowed = (now - self.last_redis_check) >= self.retry_interval
+        
         try:
             # Try to use Redis for distributed rate limiting
-            if not self.redis_available:
+            if not self.redis_available and redis_retry_allowed:
                 from .core.redis_manager import get_redis
                 redis = get_redis()
                 self.redis_available = True
+                self.last_redis_check = now
             
-            # Use Redis-based rate limiting
-            rate_limit_key = f"rate_limit:{client_ip}"
-            allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
-            
-            if not allowed:
-                return Response("Rate limit exceeded", status_code=429)
+            if self.redis_available:
+                # Use Redis-based rate limiting
+                rate_limit_key = f"rate_limit:{client_ip}"
+                allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
+                
+                if not allowed:
+                    return Response("Rate limit exceeded", status_code=429)
+            else:
+                # Use in-memory fallback during backoff period
+                raise Exception("Redis unavailable, using in-memory fallback")
                 
         except Exception:
-            # Fall back to in-memory rate limiting
-            now = time.time()
+            # Mark Redis as unavailable and update last check time
+            if self.redis_available or redis_retry_allowed:
+                self.redis_available = False
+                self.last_redis_check = now
             
+            # Fall back to in-memory rate limiting
             # Clean old entries
             self.clients = {
                 ip: times for ip, times in self.clients.items()
