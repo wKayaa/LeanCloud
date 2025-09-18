@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 import structlog
 
 from ..core.auth import get_current_user
@@ -226,6 +226,81 @@ async def stop_grabber(
         raise
     except Exception as e:
         logger.error("Failed to stop grabber", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/lists")
+async def upload_list(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Upload a new domain/target list"""
+    try:
+        # Validate file type
+        if not file.filename or not file.filename.endswith(('.txt', '.list')):
+            raise HTTPException(
+                status_code=400, 
+                detail="Only .txt and .list files are supported"
+            )
+        
+        # Read and validate file content
+        content = await file.read()
+        content_str = content.decode('utf-8')
+        
+        # Count valid lines
+        lines = [line.strip() for line in content_str.split('\n') if line.strip()]
+        if not lines:
+            raise HTTPException(status_code=400, detail="List file is empty")
+        
+        # Generate unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{file.filename}"
+        
+        # Save to filesystem
+        file_path = grabber.data_dir / safe_filename
+        with open(file_path, 'w') as f:
+            f.write(content_str)
+        
+        # Determine category
+        filename_lower = file.filename.lower()
+        if 'wordlist' in filename_lower or 'paths' in filename_lower:
+            category = 'wordlists'
+        elif 'ip' in filename_lower or 'ranges' in filename_lower:
+            category = 'ip_lists'
+        else:
+            category = 'targets'
+        
+        # Create list info
+        list_info = ListInfo(
+            id=str(hash(safe_filename)),
+            name=Path(file.filename).stem,
+            filename=safe_filename,
+            category=category,
+            size=len(lines),
+            file_size=len(content),
+            created_at=datetime.now(timezone.utc)
+        )
+        
+        logger.info("List uploaded", 
+                   filename=safe_filename,
+                   category=category,
+                   size=len(lines),
+                   user=current_user.get('sub'))
+        
+        return {
+            "id": list_info.id,
+            "filename": safe_filename,
+            "original_filename": file.filename,
+            "category": category,
+            "size": len(lines),
+            "file_size": len(content),
+            "message": f"List '{file.filename}' uploaded successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to upload list", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

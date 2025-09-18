@@ -50,14 +50,46 @@ async def auth_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> D
 
 # Health and metrics endpoints
 @router.get("/healthz")
+@router.get("/readyz")
 async def health_check():
-    """Health check endpoint"""
-    return {
+    """Health check endpoint with service status"""
+    from ..core.redis_manager import get_redis
+    from ..core.database import async_engine
+    
+    status = {
         "status": "healthy",
         "service": "httpx_scanner",
         "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "components": {}
     }
+    
+    # Check database
+    try:
+        if async_engine:
+            async with async_engine.connect() as conn:
+                from sqlalchemy import text
+                await conn.execute(text("SELECT 1"))
+            status["components"]["database"] = "healthy"
+        else:
+            status["components"]["database"] = "not_initialized"
+    except Exception as e:
+        status["components"]["database"] = f"unhealthy: {str(e)}"
+        status["status"] = "degraded"
+    
+    # Check Redis
+    try:
+        redis_manager = get_redis()
+        if await redis_manager.is_healthy():
+            status["components"]["redis"] = "healthy"
+        else:
+            status["components"]["redis"] = "unhealthy"
+            status["status"] = "degraded"
+    except Exception:
+        status["components"]["redis"] = "not_initialized"
+        status["status"] = "degraded"
+    
+    return status
 
 @router.get("/metrics")
 async def get_metrics():
@@ -321,6 +353,13 @@ async def get_scan_logs(
 async def get_scan_progress(scan_id: str) -> Dict[str, Any]:
     """Get detailed progress information for a scan"""
     try:
+        # Validate scan_id as UUID
+        try:
+            import uuid
+            uuid.UUID(scan_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid scan ID format")
+        
         scan_result = enhanced_scanner.get_scan_result(scan_id)
         if not scan_result:
             raise HTTPException(status_code=404, detail="Scan not found")
