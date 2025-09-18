@@ -252,13 +252,98 @@ class WSEventType(str, Enum):
 
 class ValidationResult(BaseModel):
     """Result from service validation"""
-    works: bool
-    confidence: float = Field(ge=0.0, le=1.0)
-    regions: List[str] = Field(default=[])
-    capabilities: List[str] = Field(default=[])
-    quotas: Dict[str, Any] = Field(default={})
-    verified_identities: List[str] = Field(default=[])
+    is_valid: bool
+    reason: Optional[str] = None
+    quota_info: Optional[Dict[str, Any]] = None
+    credits_remaining: Optional[int] = None
+    rate_limit_info: Optional[Dict[str, Any]] = None
+
+
+class ProviderStatus(str, Enum):
+    """Provider validation status"""
+    VALID = "valid"
+    INVALID = "invalid"
+    UNKNOWN = "unknown"
+    ERROR = "error"
+
+
+class ProviderPayload(BaseModel):
+    """Provider-specific credential and status information"""
+    masked_api_key: str
+    status: ProviderStatus = ProviderStatus.UNKNOWN
+    reason: Optional[str] = None
+    quota: Optional[Dict[str, Any]] = None
+    credits: Optional[int] = None
+    proxy_state: Optional[str] = None
+    validated_at: Optional[datetime] = None
+    
+
+class Hit(BaseModel):
+    """Enhanced hit model with provider validation"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    discovered_at: datetime = Field(default_factory=datetime.now)
+    host: str
+    path: str 
+    url: str
+    service: str  # Provider type (aws, sendgrid, etc.)
+    validated: bool = False
+    provider_payload: Optional[ProviderPayload] = None
+    evidence_ref: Optional[str] = None  # Reference to full evidence
+    scan_id: Optional[str] = None
+    confidence_score: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class TelemetrySnapshot(BaseModel):
+    """Periodic telemetry snapshot for persistence"""
+    scan_id: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    processed_urls: int = 0
+    total_urls: int = 0
+    progress_percent: float = 0.0
+    hits_count: int = 0
+    
+    # Provider hit counts
+    aws_hits: int = 0
+    sendgrid_hits: int = 0
+    sparkpost_hits: int = 0
+    twilio_hits: int = 0
+    brevo_hits: int = 0
+    mailgun_hits: int = 0
+    
+    # Performance metrics
+    urls_per_sec: float = 0.0
+    https_reqs_per_sec: float = 0.0
+    precision_percent: float = 0.0
+    duration_seconds: int = 0
+    eta_seconds: Optional[int] = None
+
+
+class DomainList(BaseModel):
+    """Domain list management"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    filename: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    size_bytes: int = 0
+    domain_count: int = 0
+    status: str = "active"  # active, processing, error
+
+
+class GrabberStatus(BaseModel):
+    """Grabber worker status"""
+    is_running: bool = False
+    started_at: Optional[datetime] = None
+    processed_count: int = 0
+    generated_count: int = 0
     error_message: Optional[str] = None
+    estimated_completion: Optional[datetime] = None
+
+
+class TelegramSettings(BaseModel):
+    """Telegram configuration"""
+    bot_token: Optional[str] = None
+    chat_id: Optional[str] = None
+    enabled: bool = False
 
 
 class ModuleResult(BaseModel):

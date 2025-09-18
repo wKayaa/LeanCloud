@@ -27,6 +27,11 @@ from ..core.models import (
     WSEventType
 )
 
+# Import new API modules
+from .results import router as results_router
+from .grabber import router as grabber_router  
+from .settings_enhanced import router as settings_router
+
 logger = structlog.get_logger()
 
 router = APIRouter()
@@ -718,4 +723,10 @@ async def update_settings(updates: Dict[str, Any]) -> Dict[str, str]:
         raise
     except Exception as e:
         logger.error("Failed to update settings", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to update settings")
+
+
+# Include sub-routers
+router.include_router(results_router, tags=["results"])
+router.include_router(grabber_router, tags=["grabber"])
+router.include_router(settings_router, tags=["settings"])
