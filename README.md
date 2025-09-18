@@ -48,20 +48,22 @@ The fastest way to get started is with Docker Compose:
 git clone https://github.com/wKayaa/LeanCloud.git
 cd LeanCloud
 
-# 2. Create environment configuration
-cp .env.example .env
+# 2. Run first-time setup (interactive)
+./scripts/setup.sh
 
-# 3. Customize your settings (optional)
-nano .env  # Update SECRET_KEY, ADMIN_PASSWORD, etc.
-
-# 4. Start all services
+# 3. Start all services
 docker compose up -d
 
-# 5. Access the application
+# 4. Access the application
 open http://localhost:8000
 ```
 
-**Default credentials**: `admin` / `admin123` (you'll be prompted to change this on first login)
+The setup script will configure:
+- **Admin credentials** (email and secure password)
+- **Database settings** (PostgreSQL or SQLite)
+- **Redis configuration** (with graceful degradation)
+- **Security keys** (auto-generated)
+- **Scanner settings** (concurrency, rate limits)
 
 The Docker setup includes:
 - **FastAPI Application** (port 8000)
@@ -74,8 +76,41 @@ The Docker setup includes:
 ### Prerequisites
 - **Python 3.8+** - Required for the FastAPI backend
 - **httpx CLI tool** - The core scanning engine (required for live scanning)
-- **Optional**: Redis (for caching and rate limiting)
+- **Optional**: Redis (for caching and pub/sub)
 - **Optional**: PostgreSQL (for persistent storage)
+
+### Redis Installation (Optional but Recommended)
+
+Redis provides real-time WebSocket updates and rate limiting. The application gracefully degrades when Redis is unavailable.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update && sudo apt-get install -y redis-server
+sudo systemctl enable --now redis-server
+redis-cli ping  # Should return PONG
+```
+
+**Docker:**
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+**macOS:**
+```bash
+brew install redis
+brew services start redis
+```
+
+### Configuration Options
+
+The application supports flexible configuration via environment variables and YAML:
+
+- **With Redis enabled**: Full real-time features, WebSocket updates, rate limiting
+- **Redis disabled**: Polling mode, local rate limiting, degraded real-time features
+- **SQLite**: Good for development and small deployments
+- **PostgreSQL**: Recommended for production with high concurrency
+
+Set `USE_REDIS=false` in your `.env` file to disable Redis dependency.
 
 ### HTTPx CLI Installation
 The application requires ProjectDiscovery's httpx CLI tool for live scanning:
@@ -738,6 +773,110 @@ ws://localhost:8000/ws/scans/{scan_id}?token=YOUR_TOKEN
    # Ensure write permissions
    chmod -R 755 data/
    ```
+
+## Troubleshooting
+
+### Common Issues
+
+#### UUID Database Errors
+**Error**: `'str' object has no attribute 'hex'`
+**Solution**: This was fixed in the latest version. Update your installation and restart the application.
+
+#### Redis Connection Issues
+**Error**: Redis connection failed or WebSocket not working
+**Solutions**:
+1. **Check Redis status**: `redis-cli ping` should return `PONG`
+2. **Restart Redis**: `sudo systemctl restart redis-server`
+3. **Disable Redis**: Set `USE_REDIS=false` in `.env` to run in degraded mode
+4. **Check Docker**: `docker ps` to ensure Redis container is running
+
+#### Docker Health Check Failures
+**Error**: API container health check failing
+**Solutions**:
+1. **Check logs**: `docker compose logs api`
+2. **Verify endpoint**: `curl http://localhost:8000/healthz`
+3. **Database connection**: Ensure PostgreSQL is running and accessible
+4. **Port conflicts**: Check if port 8000 is already in use
+
+#### Performance Issues
+**Symptoms**: Slow scanning, high memory usage, timeouts
+**Solutions**:
+1. **Reduce concurrency**: Lower `MAX_CONCURRENCY` in `.env`
+2. **Increase timeouts**: Adjust `timeout` in scan configuration
+3. **Check resources**: Monitor CPU and memory usage
+4. **Database tuning**: For PostgreSQL, consider connection pooling
+
+#### Scanner Not Working
+**Error**: Scans fail or don't start
+**Solutions**:
+1. **Check httpx CLI**: `httpx --help` should work
+2. **Path issues**: Ensure httpx is in PATH or set `HTTPX_PATH` in `.env`
+3. **Permissions**: Check file permissions on wordlist files
+4. **Database**: Verify database connection and tables exist
+
+### Environment Variables Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USE_REDIS` | `true` | Enable Redis for pub/sub and caching |
+| `DATABASE_URL` | SQLite | Database connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
+| `MAX_CONCURRENCY` | `1000` | Maximum concurrent HTTP requests |
+| `RATE_LIMIT_PER_MINUTE` | `60` | Rate limit for API requests |
+| `SECRET_KEY` | auto-generated | Application secret key |
+| `JWT_SECRET_KEY` | auto-generated | JWT signing key |
+| `ADMIN_EMAIL` | `admin@example.com` | Admin user email |
+| `ADMIN_PASSWORD` | `admin123` | Admin user password |
+| `CORS_ORIGINS` | `http://localhost:8000` | Allowed CORS origins |
+| `DEBUG` | `false` | Enable debug logging |
+
+### Health Check Endpoints
+
+- **Health Check**: `GET /healthz` - Basic application health
+- **Readiness Check**: `GET /api/v1/readyz` - Component-level health
+- **Metrics**: `GET /api/v1/metrics` - Prometheus metrics
+
+Component health includes:
+- **Database**: Connection and query health
+- **Redis**: Cache and pub/sub availability  
+- **Overall Status**: healthy/degraded/unhealthy
+
+### Log Analysis
+
+**View application logs**:
+```bash
+# Docker Compose
+docker compose logs api
+
+# Find specific errors
+docker compose logs api | grep ERROR
+
+# Follow logs in real-time
+docker compose logs -f api
+```
+
+**Common log messages**:
+- `Redis initialization failed` - Redis unavailable, running in degraded mode
+- `Database initialization failed` - Database connection issues
+- `modules_LeanCloud not found` - Optional modules not installed (normal)
+- `Configuration issues detected` - Review settings validation warnings
+
+### First-Run Setup Issues
+
+If the setup script fails or you need to reconfigure:
+
+```bash
+# Re-run setup
+./scripts/setup.sh
+
+# Manual configuration
+cp .env.example .env
+nano .env  # Edit settings manually
+
+# Reset to defaults
+rm .env data/config.yml
+./scripts/setup.sh
+```
 
 ## Contributing
 

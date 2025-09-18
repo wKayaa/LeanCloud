@@ -2,7 +2,9 @@
 
 import os
 import secrets
-from typing import List, Optional
+import yaml
+from pathlib import Path
+from typing import List, Optional, Dict, Any, Union
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 import structlog
@@ -10,8 +12,20 @@ import structlog
 logger = structlog.get_logger()
 
 
+def load_yaml_config() -> Dict[str, Any]:
+    """Load configuration from data/config.yml"""
+    config_path = Path("data/config.yml")
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.warning("Failed to load config.yml", error=str(e))
+    return {}
+
+
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables"""
+    """Application settings loaded from environment variables and config files"""
     
     # Security
     secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32), env="SECRET_KEY")
@@ -31,10 +45,11 @@ class Settings(BaseSettings):
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
+    use_redis: bool = Field(default=True, env="USE_REDIS")
     
     # CORS
-    cors_origins: List[str] = Field(
-        default=["http://localhost:8000", "http://127.0.0.1:8000"], 
+    cors_origins: Union[str, List[str]] = Field(
+        default="http://localhost:8000,http://127.0.0.1:8000", 
         env="CORS_ORIGINS"
     )
     
@@ -59,18 +74,31 @@ class Settings(BaseSettings):
     
     # Application State
     first_run: bool = Field(default=True)
+    setup_completed: bool = Field(default=False)
     auth_required: bool = Field(default=True)
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields from YAML config
     
     @validator("cors_origins", pre=True)
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+            if v.strip():  # Only split if not empty
+                return [origin.strip() for origin in v.split(",") if origin.strip()]
+            else:
+                return ["http://localhost:8000", "http://127.0.0.1:8000"]  # Default fallback
+        elif isinstance(v, list):
+            return v
+        return ["http://localhost:8000", "http://127.0.0.1:8000"]
+    
+    def get_cors_origins(self) -> List[str]:
+        """Get CORS origins as a list"""
+        if isinstance(self.cors_origins, str):
+            return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return self.cors_origins
     
     @validator("secret_key")
     def validate_secret_key(cls, v, values):
@@ -84,18 +112,44 @@ class Settings(BaseSettings):
             logger.warning("JWT secret key not provided - using generated key")
         return v
 
+    def __init__(self, **data):
+        # Load YAML config first
+        yaml_config = load_yaml_config()
+        
+        # Merge YAML config with provided data, giving precedence to environment variables
+        merged_data = {**yaml_config, **data}
+        
+        # Override first_run and setup_completed from YAML if present
+        if 'first_run' in yaml_config:
+            merged_data['first_run'] = yaml_config['first_run']
+        if 'setup_completed' in yaml_config:
+            merged_data['setup_completed'] = yaml_config['setup_completed']
+            
+        super().__init__(**merged_data)
+
 
 # Global settings instance
-settings = Settings()
+_settings: Optional[Settings] = None
 
 
 def get_settings() -> Settings:
-    """Get application settings"""
-    return settings
+    """Get application settings (singleton)"""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
+
+def reload_settings():
+    """Reload settings from files and environment"""
+    global _settings
+    _settings = None
+    return get_settings()
 
 
 def validate_settings() -> List[str]:
     """Validate settings and return list of issues"""
+    settings = get_settings()
     issues = []
     
     # Security validation
@@ -110,8 +164,8 @@ def validate_settings() -> List[str]:
         issues.append("Database URL not configured")
     
     # Redis validation  
-    if not settings.redis_url:
-        issues.append("Redis URL not configured")
+    if settings.use_redis and not settings.redis_url:
+        issues.append("Redis is enabled but URL not configured")
     
     # Notification validation
     if settings.telegram_bot_token and not settings.telegram_chat_id:

@@ -42,6 +42,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://httpx:httpx@postgres:5432/httpx_scanner
       - REDIS_URL=redis://redis:6379/0
+      - USE_REDIS=${USE_REDIS:-true}
       - SECRET_KEY=${SECRET_KEY:-httpx-scanner-development-key}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-jwt-development-key}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
@@ -59,7 +60,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3

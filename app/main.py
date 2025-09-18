@@ -18,8 +18,10 @@ from .core.settings import get_settings, validate_settings
 from .core.database import init_database, cleanup_database
 from .core.redis_manager import init_redis, close_redis
 from .core.scanner_enhanced import enhanced_scanner
+from .core.httpx_async_scanner import httpx_async_scanner
 from .core.notifications import notification_manager
 from .core.metrics import metrics
+from .core.modules_loader import modules_loader
 
 # Configure structured logging
 structlog.configure(
@@ -262,8 +264,11 @@ async def startup_event():
         
         # Initialize Redis (with graceful degradation)
         try:
-            await init_redis(settings.redis_url)
-            logger.info("Redis initialized")
+            await init_redis(settings.redis_url, settings.use_redis)
+            if settings.use_redis:
+                logger.info("Redis initialized", url=settings.redis_url)
+            else:
+                logger.info("Redis disabled - running in degraded mode", use_redis=settings.use_redis)
         except Exception as e:
             logger.error("Redis initialization failed", error=str(e))
             # Continue without Redis (degraded mode)
@@ -271,6 +276,14 @@ async def startup_event():
         # Initialize enhanced scanner
         await enhanced_scanner.initialize()
         logger.info("Enhanced scanner initialized")
+        
+        # Initialize HTTPx async scanner
+        await httpx_async_scanner.initialize()
+        logger.info("HTTPx async scanner initialized")
+        
+        # Initialize modules loader
+        modules_loader.initialize()
+        logger.info("Modules loader initialized", available=modules_loader.is_available())
         
         # Initialize notification manager
         await notification_manager.initialize()

@@ -5,6 +5,23 @@ from enum import Enum
 import uuid
 
 
+def coerce_uuid(v: Union[str, uuid.UUID]) -> uuid.UUID:
+    """Coerce string or UUID to UUID object"""
+    if isinstance(v, uuid.UUID):
+        return v
+    if isinstance(v, str):
+        try:
+            return uuid.UUID(v)
+        except ValueError:
+            raise ValueError(f"Invalid UUID format: {v}")
+    raise ValueError(f"Cannot convert {type(v)} to UUID")
+
+
+def uuid4_factory() -> uuid.UUID:
+    """Generate a new UUID4"""
+    return uuid.uuid4()
+
+
 class ScanStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -74,8 +91,8 @@ class SecretPattern(BaseModel):
 
 
 class Finding(BaseModel):
-    id: str
-    scan_id: str
+    id: uuid.UUID = Field(default_factory=uuid4_factory)
+    scan_id: uuid.UUID
     crack_id: str  # Human-readable scan identifier
     service: str  # Service type (AWS, SendGrid, etc.)
     pattern_id: str
@@ -93,10 +110,19 @@ class Finding(BaseModel):
     quotas: Dict[str, Any] = Field(default={})  # Service quotas/limits
     verified_identities: List[str] = Field(default=[])  # Verified identities
     created_at: datetime = Field(default_factory=datetime.now)
+    
+    # Validators for UUID coercion
+    @validator('id', pre=True)
+    def coerce_id(cls, v):
+        return coerce_uuid(v)
+    
+    @validator('scan_id', pre=True)
+    def coerce_scan_id(cls, v):
+        return coerce_uuid(v)
 
 
 class ScanResult(BaseModel):
-    id: str
+    id: uuid.UUID = Field(default_factory=uuid4_factory)
     crack_id: str  # Human-readable identifier
     status: ScanStatus
     created_at: datetime
@@ -129,11 +155,16 @@ class ScanResult(BaseModel):
     ram_mb: float = 0.0
     net_mbps_in: float = 0.0
     net_mbps_out: float = 0.0
+    
+    # Validator for UUID coercion
+    @validator('id', pre=True)
+    def coerce_id(cls, v):
+        return coerce_uuid(v)
 
 
 class ScanStats(BaseModel):
     """Real-time scan statistics"""
-    scan_id: str
+    scan_id: uuid.UUID
     crack_id: str
     status: ScanStatus
     progress_pct: float
@@ -149,6 +180,11 @@ class ScanStats(BaseModel):
     docker_infected: int
     k8s_infected: int
     timestamp: datetime = Field(default_factory=datetime.now)
+    
+    # Validator for UUID coercion
+    @validator('scan_id', pre=True)
+    def coerce_scan_id(cls, v):
+        return coerce_uuid(v)
 
 
 class ScanResourceUsage(BaseModel):
