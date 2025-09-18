@@ -27,9 +27,19 @@ from ..core.models import (
     WSEventType
 )
 
+# Import new API routers
+from .results import router as results_router
+from .grabber import router as grabber_router
+from .settings import router as settings_router
+
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+# Include new API routers
+router.include_router(results_router, prefix="", tags=["results"])
+router.include_router(grabber_router, prefix="", tags=["grabber"])
+router.include_router(settings_router, prefix="", tags=["settings"])
 
 # Health and metrics endpoints
 @router.get("/healthz")

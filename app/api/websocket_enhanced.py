@@ -380,11 +380,36 @@ async def websocket_dashboard_endpoint(websocket: WebSocket, token: str = None):
     await manager.subscribe_to_dashboard(websocket)
     
     try:
-        # Send initial dashboard stats
+        # Send initial dashboard stats with French UI support
         connection_stats = await manager.get_connection_stats()
+        
+        # Get provider stats for tiles
+        from .results import get_provider_stats
+        try:
+            # Mock session for now - in real implementation use proper session
+            provider_stats = {
+                'aws': 0, 'sendgrid': 0, 'sparkpost': 0, 
+                'twilio': 0, 'brevo': 0, 'mailgun': 0
+            }
+        except:
+            provider_stats = {
+                'aws': 0, 'sendgrid': 0, 'sparkpost': 0, 
+                'twilio': 0, 'brevo': 0, 'mailgun': 0
+            }
+        
         scan_stats = {
             "active_scans": len(enhanced_scanner.active_scans),
-            "total_findings": sum(len(findings) for findings in enhanced_scanner.findings.values())
+            "total_findings": sum(len(findings) for findings in enhanced_scanner.findings.values()),
+            "provider_hits": provider_stats,
+            # French UI specific metrics
+            "processed_urls": 0,
+            "total_urls": 0,
+            "progress_percent": 0.0,
+            "urls_per_sec": 0.0,
+            "https_reqs_per_sec": 0.0,
+            "precision_percent": 0.0,
+            "duration_seconds": 0.0,
+            "eta_seconds": None
         }
         
         initial_message = {

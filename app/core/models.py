@@ -267,3 +267,111 @@ class ModuleResult(BaseModel):
     patterns_matched: int
     validation_result: Optional[ValidationResult] = None
     processing_time: float  # seconds
+
+
+class ProviderStatus(str, Enum):
+    """Provider credential validation status"""
+    VALID = "valid"
+    INVALID = "invalid"
+    UNKNOWN = "unknown"
+    EXPIRED = "expired"
+    RATE_LIMITED = "rate_limited"
+    ERROR = "error"
+
+
+class ProviderPayload(BaseModel):
+    """Provider-specific credential and status information"""
+    api_key_masked: str = Field(..., description="Masked API key")
+    status: ProviderStatus = Field(default=ProviderStatus.UNKNOWN)
+    reason: Optional[str] = Field(default=None, description="Status reason or error message")
+    quota: Optional[Dict[str, Any]] = Field(default=None, description="Usage quota information")
+    credits: Optional[int] = Field(default=None, description="Available credits")
+    proxy_state: Optional[str] = Field(default=None, description="Proxy validation state")
+    last_checked: Optional[datetime] = Field(default=None, description="Last validation timestamp")
+
+
+class Hit(BaseModel):
+    """Enhanced hit model for French UI parity"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    discovered_at: datetime = Field(default_factory=datetime.now)
+    host: str
+    path: str = Field(default="/")
+    url: str
+    service: str  # Provider service (aws, sendgrid, sparkpost, twilio, brevo, mailgun)
+    validated: bool = Field(default=False, description="Whether credentials are validated as working")
+    provider_payload: Optional[ProviderPayload] = Field(default=None)
+    evidence_ref: Optional[str] = Field(default=None, description="Reference to evidence file/data")
+    
+    # Legacy compatibility fields
+    scan_id: Optional[str] = None
+    crack_id: Optional[str] = None
+    pattern_id: Optional[str] = None
+    evidence: Optional[str] = None
+    evidence_masked: Optional[str] = None
+
+
+class TelemetrySnapshot(BaseModel):
+    """Real-time telemetry snapshot for persistent storage"""
+    scan_id: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    
+    # Core metrics
+    processed_urls: int = 0
+    total_urls: int = 0
+    progress_percent: float = 0.0
+    hits_count: int = 0
+    
+    # Provider-specific hit counts
+    provider_hits: Dict[str, int] = Field(default_factory=dict)  # aws: 5, sendgrid: 2, etc.
+    
+    # Performance metrics
+    urls_per_sec: float = 0.0
+    https_reqs_per_sec: float = 0.0
+    precision_percent: float = 0.0
+    duration_seconds: float = 0.0
+    eta_seconds: Optional[float] = None
+    
+    # System resources
+    cpu_percent: float = 0.0
+    ram_mb: float = 0.0
+    network_mbps: float = 0.0
+
+
+class DashboardStats(BaseModel):
+    """Global dashboard statistics"""
+    active_scans: int = 0
+    total_hits: int = 0
+    checks_per_sec: float = 0.0
+    success_rate: float = 0.0
+    
+    # System resources
+    resources: Dict[str, Union[float, int]] = Field(default_factory=dict)
+
+
+class ListInfo(BaseModel):
+    """Domain/target list information"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    filename: str
+    category: str  # wordlists, targets, ip_lists
+    size: int  # number of entries
+    file_size: int  # bytes
+    created_at: datetime = Field(default_factory=datetime.now)
+    last_used: Optional[datetime] = None
+
+
+class GrabberStatus(BaseModel):
+    """Grabber worker status"""
+    active: bool = False
+    processed_domains: int = 0
+    generated_candidates: int = 0
+    current_operation: Optional[str] = None
+    started_at: Optional[datetime] = None
+    estimated_completion: Optional[datetime] = None
+
+
+class TelegramSettings(BaseModel):
+    """Telegram notification settings"""
+    bot_token: str = Field(..., description="Telegram bot token")
+    chat_id: str = Field(..., description="Chat/channel ID for notifications")
+    enabled: bool = Field(default=True)
