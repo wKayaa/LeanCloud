@@ -71,6 +71,8 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         self.period = period
         self.clients = {}
         self.redis_available = False
+        self.last_redis_check = 0
+        self.retry_interval = 30  # 30 seconds backoff
     
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host
@@ -79,21 +81,29 @@ class EnhancedRateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/healthz", "/metrics"]:
             return await call_next(request)
         
+        current_time = time.time()
+        
         try:
-            # Try to use Redis for distributed rate limiting
-            if not self.redis_available:
+            # Only try Redis if we haven't failed recently or if it's been a while since last check
+            if not self.redis_available and (current_time - self.last_redis_check) > self.retry_interval:
                 from .core.redis_manager import get_redis
                 redis = get_redis()
                 self.redis_available = True
+                self.last_redis_check = current_time
             
-            # Use Redis-based rate limiting
-            rate_limit_key = f"rate_limit:{client_ip}"
-            allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
-            
-            if not allowed:
-                return Response("Rate limit exceeded", status_code=429)
+            if self.redis_available:
+                # Use Redis-based rate limiting
+                rate_limit_key = f"rate_limit:{client_ip}"
+                allowed = await redis.rate_limit(rate_limit_key, self.calls, self.period)
                 
+                if not allowed:
+                    return Response("Rate limit exceeded", status_code=429)
+                    
         except Exception:
+            # Mark Redis as unavailable and update last check time
+            self.redis_available = False
+            self.last_redis_check = current_time
+            
             # Fall back to in-memory rate limiting
             now = time.time()
             
@@ -242,6 +252,11 @@ async def startup_event():
         issues = config_manager.validate_config()
         if issues:
             logger.warning("Configuration issues detected", issues=issues)
+        
+        # Ensure data directories exist
+        Path("data/lists").mkdir(parents=True, exist_ok=True)
+        Path("data/results").mkdir(parents=True, exist_ok=True)
+        logger.info("Data directories initialized")
         
         # Initialize database
         try:
