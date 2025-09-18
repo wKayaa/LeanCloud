@@ -18,6 +18,7 @@ from ..core.auth import get_current_user, require_admin
 from ..core.database import get_db_session, ScanDB, FindingDB, EventDB, AuditLogDB, ListDB
 from ..core.redis_manager import get_redis
 from ..core.scanner_enhanced import enhanced_scanner
+from ..core.httpx_executor import httpx_executor
 from ..core.notifications import notification_manager
 from ..core.metrics import metrics
 from ..core.config import config_manager
@@ -256,6 +257,112 @@ async def control_scan(scan_id: str, control_request: ScanControlRequest) -> Dic
     except Exception as e:
         logger.error("Failed to control scan", scan_id=scan_id, action=control_request.action, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# New endpoints for live scan data
+@router.get("/scans/{scan_id}/logs", dependencies=[Depends(get_current_user)])
+async def get_scan_logs(
+    scan_id: str,
+    tail: int = Query(500, ge=1, le=5000, description="Number of recent log lines to return")
+) -> Dict[str, Any]:
+    """Get recent logs for a scan"""
+    try:
+        # For now, return basic info - logs would come from WebSocket in real implementation
+        # This endpoint provides fallback access when WebSocket isn't available
+        scan_result = enhanced_scanner.get_scan_result(scan_id)
+        if not scan_result:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        
+        # Get httpx executor stats if available
+        stats = httpx_executor.get_scan_stats(scan_id)
+        
+        logs = []
+        if scan_result.status == ScanStatus.RUNNING:
+            logs.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "level": "info",
+                "message": f"Scan is running - processed {scan_result.processed_urls} URLs"
+            })
+            
+            if stats:
+                logs.append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "level": "info", 
+                    "message": f"Performance: {stats.get('processed_urls', 0)} URLs processed, "
+                              f"{stats.get('hits', 0)} hits, {stats.get('errors', 0)} errors"
+                })
+        elif scan_result.status == ScanStatus.COMPLETED:
+            logs.append({
+                "timestamp": scan_result.completed_at.isoformat() if scan_result.completed_at else datetime.now(timezone.utc).isoformat(),
+                "level": "info",
+                "message": f"Scan completed - {scan_result.findings_count} findings"
+            })
+        elif scan_result.status == ScanStatus.FAILED:
+            logs.append({
+                "timestamp": scan_result.completed_at.isoformat() if scan_result.completed_at else datetime.now(timezone.utc).isoformat(),
+                "level": "error",
+                "message": f"Scan failed: {scan_result.error_message or 'Unknown error'}"
+            })
+        
+        return {
+            "scan_id": scan_id,
+            "logs": logs[-tail:],  # Return last N entries
+            "total_logs": len(logs)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get scan logs", scan_id=scan_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scans/{scan_id}/progress", dependencies=[Depends(get_current_user)])
+async def get_scan_progress(scan_id: str) -> Dict[str, Any]:
+    """Get detailed progress information for a scan"""
+    try:
+        scan_result = enhanced_scanner.get_scan_result(scan_id)
+        if not scan_result:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        
+        # Get executor stats for additional detail
+        stats = httpx_executor.get_scan_stats(scan_id)
+        
+        progress_data = {
+            "scan_id": scan_id,
+            "status": scan_result.status.value,
+            "processed_urls": scan_result.processed_urls,
+            "total_urls": scan_result.total_urls,
+            "progress_percent": scan_result.progress_percent,
+            "findings_count": scan_result.findings_count,
+            "hits_count": scan_result.hits_count,
+            "checks_per_sec": scan_result.checks_per_sec,
+            "urls_per_sec": scan_result.urls_per_sec,
+            "eta_seconds": scan_result.eta_seconds,
+            "started_at": scan_result.started_at.isoformat() if scan_result.started_at else None,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Add executor-specific stats if available
+        if stats:
+            progress_data.update({
+                "executor_stats": {
+                    "processed_urls": stats.get('processed_urls', 0),
+                    "hits": stats.get('hits', 0),
+                    "errors": stats.get('errors', 0),
+                    "start_time": stats.get('start_time', 0),
+                    "last_update": stats.get('last_update', 0)
+                }
+            })
+        
+        return progress_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get scan progress", scan_id=scan_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Enhanced findings/hits endpoints
 @router.get("/scans/{scan_id}/hits", dependencies=[Depends(get_current_user)])

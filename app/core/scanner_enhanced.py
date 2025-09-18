@@ -20,6 +20,7 @@ from .models import (
     ModuleResult, WSEventType
 )
 from .config import config_manager
+from .httpx_executor import httpx_executor
 
 logger = structlog.get_logger()
 
@@ -314,7 +315,7 @@ class EnhancedScanner:
         return scan_id
     
     async def _run_scan(self, scan_id: str):
-        """Execute the enhanced two-pass scan process"""
+        """Execute scan using httpx CLI executor"""
         try:
             scan_result = self.active_scans[scan_id]
             scan_result.status = ScanStatus.RUNNING
@@ -326,47 +327,62 @@ class EnhancedScanner:
                 "started_at": scan_result.started_at.isoformat()
             })
             
-            # Phase 1: Build URL list
-            logger.info("Phase 1: Building URL list", scan_id=scan_id)
-            urls = await self._build_urls_enhanced(scan_result)
-            scan_result.total_urls = len(urls)
+            # Initialize scan tracking
+            if scan_id not in self.findings:
+                self.findings[scan_id] = []
             
-            if not urls:
+            # Check if httpx is available
+            if not httpx_executor.is_httpx_available():
+                error_msg = "httpx binary not found - please install httpx CLI tool"
                 scan_result.status = ScanStatus.FAILED
-                scan_result.error_message = "No URLs generated from targets"
+                scan_result.error_message = error_msg
                 scan_result.completed_at = datetime.now(timezone.utc)
+                
+                await self._broadcast_scan_event(scan_id, WSEventType.SCAN_LOG, {
+                    "message": error_msg,
+                    "level": "error"
+                })
                 return
             
-            # Enqueue URLs in Redis for processing
-            try:
-                from .redis_manager import get_redis
-                redis = get_redis()
-                await redis.enqueue_scan_urls(scan_id, urls)
-            except Exception as e:
-                logger.warning("Failed to enqueue URLs in Redis", error=str(e))
+            # Execute scan with httpx
+            logger.info("Starting httpx scan execution", scan_id=scan_id, 
+                       targets=len(scan_result.config.targets))
             
-            logger.info("Phase 2: High-concurrency scanning", scan_id=scan_id, 
-                       total_urls=len(urls))
-            
-            # Phase 2: High-concurrency HTTP scanning
-            await self._scan_urls_concurrent(scan_id, urls)
+            success = await httpx_executor.execute_scan(
+                scan_id,
+                scan_result.config,
+                progress_callback=self._on_scan_progress,
+                log_callback=self._on_scan_log,
+                hit_callback=self._on_scan_hit
+            )
             
             # Mark scan as completed
-            scan_result.status = ScanStatus.COMPLETED
-            scan_result.completed_at = datetime.now(timezone.utc)
-            
-            await self._broadcast_scan_event(scan_id, WSEventType.SCAN_STATUS, {
-                "status": ScanStatus.COMPLETED.value,
-                "completed_at": scan_result.completed_at.isoformat()
-            })
-            
-            logger.info("Scan completed", scan_id=scan_id, 
-                       findings=len(self.findings.get(scan_id, [])))
+            if success:
+                scan_result.status = ScanStatus.COMPLETED
+                scan_result.completed_at = datetime.now(timezone.utc)
+                
+                await self._broadcast_scan_event(scan_id, WSEventType.SCAN_STATUS, {
+                    "status": ScanStatus.COMPLETED.value,
+                    "completed_at": scan_result.completed_at.isoformat()
+                })
+                
+                logger.info("Scan completed successfully", scan_id=scan_id, 
+                           findings=len(self.findings.get(scan_id, [])))
+            else:
+                scan_result.status = ScanStatus.FAILED
+                scan_result.error_message = "httpx execution failed"
+                scan_result.completed_at = datetime.now(timezone.utc)
+                
+                logger.error("Scan failed", scan_id=scan_id)
             
         except asyncio.CancelledError:
             logger.info("Scan cancelled", scan_id=scan_id)
             scan_result.status = ScanStatus.STOPPED
             scan_result.stopped_at = datetime.now(timezone.utc)
+            
+            # Stop httpx process
+            await httpx_executor.stop_scan(scan_id)
+            
         except Exception as e:
             logger.error("Scan failed", scan_id=scan_id, error=str(e))
             scan_result.status = ScanStatus.FAILED
@@ -378,6 +394,94 @@ class EnhancedScanner:
             self.concurrency_managers.pop(scan_id, None) 
             self.circuit_breakers.pop(scan_id, None)
             self.scan_tasks.pop(scan_id, None)
+    
+    # Callback methods for httpx executor
+    async def _on_scan_progress(self, scan_id: str, processed: int, total: int, 
+                               checks_per_sec: float, urls_per_sec: float, eta_seconds: Optional[int]):
+        """Handle scan progress updates from httpx executor"""
+        scan_result = self.active_scans.get(scan_id)
+        if not scan_result:
+            return
+            
+        # Update scan result
+        scan_result.processed_urls = processed
+        scan_result.total_urls = total if total > 0 else processed
+        scan_result.checks_per_sec = checks_per_sec
+        scan_result.urls_per_sec = urls_per_sec
+        scan_result.eta_seconds = eta_seconds
+        scan_result.progress_percent = (processed / total * 100) if total > 0 else 0
+        
+        # Broadcast progress
+        await self._broadcast_scan_event(scan_id, WSEventType.SCAN_PROGRESS, {
+            "processed_urls": processed,
+            "total_urls": total,
+            "progress_percent": scan_result.progress_percent,
+            "checks_per_sec": checks_per_sec,
+            "urls_per_sec": urls_per_sec,
+            "eta_seconds": eta_seconds
+        })
+    
+    async def _on_scan_log(self, scan_id: str, message: str, level: str):
+        """Handle log messages from httpx executor"""
+        # Broadcast log message
+        await self._broadcast_scan_event(scan_id, WSEventType.SCAN_LOG, {
+            "message": message,
+            "level": level,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    
+    async def _on_scan_hit(self, scan_id: str, finding_data: Dict[str, Any]):
+        """Handle scan hits from httpx executor"""
+        try:
+            # Create finding from httpx data
+            finding_id = str(uuid.uuid4())
+            scan_result = self.active_scans.get(scan_id)
+            if not scan_result:
+                return
+                
+            finding = Finding(
+                id=finding_id,
+                scan_id=scan_id,
+                crack_id=scan_result.crack_id,
+                service="web",
+                pattern_id="httpx_hit",
+                url=finding_data.get('url', ''),
+                source_url=finding_data.get('url', ''),
+                first_seen=datetime.now(timezone.utc),
+                last_seen=datetime.now(timezone.utc),
+                evidence=f"Status: {finding_data.get('status_code', 0)}, "
+                         f"Length: {finding_data.get('content_length', 0)}, "
+                         f"Title: {finding_data.get('title', 'N/A')}",
+                evidence_masked=f"HTTP {finding_data.get('status_code', 0)} response",
+                confidence=0.6,
+                severity="low",
+                status_code=finding_data.get('status_code', 0),
+                content_length=finding_data.get('content_length', 0),
+                metadata=finding_data
+            )
+            
+            # Store finding
+            if scan_id not in self.findings:
+                self.findings[scan_id] = []
+            self.findings[scan_id].append(finding)
+            
+            # Update scan result counts
+            scan_result.findings_count = len(self.findings[scan_id])
+            scan_result.hits_count = scan_result.findings_count
+            
+            # Broadcast hit
+            await self._broadcast_scan_event(scan_id, WSEventType.SCAN_HIT, {
+                "finding_id": finding_id,
+                "url": finding.url,
+                "service": finding.service,
+                "status_code": finding.status_code,
+                "content_length": finding.content_length,
+                "title": finding_data.get('title', ''),
+                "timestamp": finding.first_seen.isoformat()
+            })
+            
+        except Exception as e:
+            logger.error("Error processing scan hit", scan_id=scan_id, error=str(e))
     
     async def _build_urls_enhanced(self, scan_result: ScanResult) -> List[str]:
         """Enhanced URL building with better performance"""
@@ -848,6 +952,9 @@ class EnhancedScanner:
         if scan_id not in self.active_scans:
             return False
         
+        # Stop httpx process first
+        await httpx_executor.stop_scan(scan_id)
+        
         # Cancel the scan task
         if scan_id in self.scan_tasks:
             task = self.scan_tasks[scan_id]
@@ -863,6 +970,7 @@ class EnhancedScanner:
             "stopped_at": scan_result.stopped_at.isoformat()
         })
         
+        logger.info("Scan stopped", scan_id=scan_id)
         return True
     
     # Query methods

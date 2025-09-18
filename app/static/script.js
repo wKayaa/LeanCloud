@@ -828,7 +828,8 @@ function connectDashboardWebSocket() {
         dashboardWebSocket.close();
     }
     
-    const wsUrl = `ws://localhost:8000/ws/dashboard?token=${authToken}`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/dashboard?token=${authToken}`;
     dashboardWebSocket = new WebSocket(wsUrl);
     
     dashboardWebSocket.onopen = function() {
@@ -856,7 +857,8 @@ function connectScanWebSocket(scanId) {
         websocketConnection.close();
     }
     
-    const wsUrl = `ws://localhost:8000/ws/scans/${scanId}?token=${authToken}`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/scans/${scanId}?token=${authToken}`;
     websocketConnection = new WebSocket(wsUrl);
     
     websocketConnection.onopen = function() {
@@ -870,11 +872,74 @@ function connectScanWebSocket(scanId) {
     
     websocketConnection.onclose = function() {
         console.log('Scan WebSocket disconnected');
+        // Try to fallback to polling if WebSocket fails
+        if (currentScanId === scanId) {
+            setTimeout(() => startScanPolling(scanId), 2000);
+        }
     };
     
     websocketConnection.onerror = function(error) {
         console.error('Scan WebSocket error:', error);
+        // Fallback to polling
+        if (currentScanId === scanId) {
+            startScanPolling(scanId);
+        }
     };
+}
+
+// Polling fallback for when WebSocket fails
+let scanPollingInterval = null;
+
+function startScanPolling(scanId) {
+    if (scanPollingInterval) {
+        clearInterval(scanPollingInterval);
+    }
+    
+    console.log('Starting scan polling fallback for', scanId);
+    
+    scanPollingInterval = setInterval(async () => {
+        try {
+            // Get scan progress
+            const progressResponse = await fetch(`${API_BASE}/scans/${scanId}/progress`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            if (progressResponse.ok) {
+                const progressData = await progressResponse.json();
+                
+                // Update UI with progress data
+                updateLiveScanStats({
+                    status: progressData.status,
+                    progress_percent: progressData.progress_percent || 0,
+                    processed_urls: progressData.processed_urls || 0,
+                    total_urls: progressData.total_urls || 0,
+                    hits_count: progressData.hits_count || 0,
+                    checks_per_sec: progressData.checks_per_sec || 0,
+                    urls_per_sec: progressData.urls_per_sec || 0,
+                    eta_seconds: progressData.eta_seconds,
+                    errors_count: 0,
+                    invalid_urls: 0
+                });
+                
+                // Stop polling if scan is complete
+                if (progressData.status === 'completed' || 
+                    progressData.status === 'failed' || 
+                    progressData.status === 'stopped') {
+                    clearInterval(scanPollingInterval);
+                    scanPollingInterval = null;
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function stopScanPolling() {
+    if (scanPollingInterval) {
+        clearInterval(scanPollingInterval);
+        scanPollingInterval = null;
+    }
 }
 
 function handleDashboardWebSocketMessage(data) {
@@ -935,24 +1000,80 @@ function updateElement(id, value) {
 }
 
 function showError(elementId, message) {
-    const element = document.getElementById(elementId);
-    if (element) {
-        element.textContent = message;
-        element.classList.add('show');
-        setTimeout(() => element.classList.remove('show'), 5000);
+    // If elementId is provided, use the legacy inline error display
+    if (elementId) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = message;
+            element.classList.add('show');
+            setTimeout(() => element.classList.remove('show'), 5000);
+        }
     }
+    
+    // Also show a toast notification
+    showToast(message, 'error');
 }
 
 function showSuccess(message) {
-    // Create a temporary success message
-    const successDiv = document.createElement('div');
-    successDiv.className = 'success-message';
-    successDiv.textContent = message;
-    document.body.appendChild(successDiv);
+    showToast(message, 'success');
+}
+
+function showWarning(message) {
+    showToast(message, 'warning');
+}
+
+function showInfo(message) {
+    showToast(message, 'info');
+}
+
+function showToast(message, type = 'info', duration = 5000) {
+    // Create toast container if it doesn't exist
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
     
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    // Get appropriate icon
+    const icons = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+    };
+    
+    toast.innerHTML = `
+        <div class="toast-content">
+            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-message">${message}</span>
+        </div>
+        <button class="toast-close" onclick="removeToast(this.parentElement)">×</button>
+    `;
+    
+    // Add to container
+    container.appendChild(toast);
+    
+    // Auto-remove after duration
     setTimeout(() => {
-        document.body.removeChild(successDiv);
-    }, 3000);
+        removeToast(toast);
+    }, duration);
+}
+
+function removeToast(toast) {
+    if (toast && toast.parentElement) {
+        toast.classList.add('removing');
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 300);
+    }
 }
 
 function showLoading(formId) {
@@ -1096,14 +1217,69 @@ function deleteList(listId) {
 
 function viewScanDetails(scanId) {
     console.log('View scan details:', scanId);
+    // Switch to scan tab and connect to scan WebSocket
+    switchTab('scan');
+    currentScanId = scanId;
+    connectScanWebSocket(scanId);
+    
+    // Show scan details
+    showLiveScanMonitor({scan_id: scanId, crack_id: scanId});
 }
 
-function pauseScan(scanId) {
-    console.log('Pause scan:', scanId);
+async function pauseScan(scanId) {
+    try {
+        const response = await fetch(`${API_BASE}/scans/${scanId}/control`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({action: 'pause'})
+        });
+        
+        if (response.ok) {
+            showSuccess('Scan paused successfully');
+        } else {
+            const error = await response.json();
+            showError('scanError', error.detail || 'Failed to pause scan');
+        }
+    } catch (error) {
+        console.error('Pause scan error:', error);
+        showError('scanError', 'Network error. Please try again.');
+    }
 }
 
-function stopScan(scanId) {
-    console.log('Stop scan:', scanId);
+async function stopScan(scanId) {
+    if (!confirm('Are you sure you want to stop this scan?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/scans/${scanId}/control`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({action: 'stop'})
+        });
+        
+        if (response.ok) {
+            showSuccess('Scan stopped successfully');
+        } else {
+            const error = await response.json();
+            showError('scanError', error.detail || 'Failed to stop scan');
+        }
+    } catch (error) {
+        console.error('Stop scan error:', error);
+        showError('scanError', 'Network error. Please try again.');
+    }
+}
+
+async function handleStopScan() {
+    if (currentScanId) {
+        await stopScan(currentScanId);
+    }
 }
 
 // ===== FRENCH UI FUNCTIONS =====
