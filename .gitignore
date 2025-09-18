@@ -60,4 +60,4 @@ temp/
 
 # Data files (may contain sensitive scan results)
 data/results/
-data/scans/
+data/scans/data/lists/

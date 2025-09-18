@@ -154,7 +154,10 @@ async def start_grabber(
             domain_files.extend(grabber.data_dir.glob(pattern))
         
         if not domain_files:
-            raise HTTPException(status_code=400, detail="No domain files found to process")
+            raise HTTPException(
+                status_code=400, 
+                detail="No domain files found in data/lists/. Please add .txt or .list files containing domains to scan. Each file should contain one domain per line."
+            )
         
         # Read domains from files
         base_domains = []
@@ -167,7 +170,10 @@ async def start_grabber(
                 logger.warning("Failed to read domain file", file=str(domain_file), error=str(e))
         
         if not base_domains:
-            raise HTTPException(status_code=400, detail="No valid domains found in files")
+            raise HTTPException(
+                status_code=400, 
+                detail="No valid domains found in files. Please ensure your .txt or .list files in data/lists/ contain valid domains (one per line)."
+            )
         
         # Remove duplicates
         base_domains = list(set(base_domains))

@@ -524,22 +524,60 @@ ws://localhost:8000/ws/scans/{scan_id}?token=YOUR_TOKEN
 
 2. **Redis connection errors**
    ```bash
-   # Optional: Install Redis for enhanced WebSocket features
-   # The system works without Redis but with limited real-time features
+   # Redis is OPTIONAL - the app runs in degraded mode without it
+   # Redis enables real-time features, WebSocket streaming, and distributed rate limiting
+   # Without Redis: rate limiting uses in-memory storage, WebSocket features are limited
+   
+   # To enable Redis features (optional):
    sudo apt-get install redis-server
+   redis-server  # Start Redis on default port 6379
    ```
 
-3. **French UI not loading**
+3. **Grabber: "No domain files found" error**
+   ```bash
+   # The grabber requires domain seed files to start
+   # Create at least one .txt or .list file in data/lists/ with domains:
+   
+   mkdir -p data/lists
+   echo -e "example.com\ntest.com\nmydomain.org" > data/lists/seeds.txt
+   
+   # Each file should contain one domain per line
+   # Supported file extensions: .txt, .list
+   ```
+
+4. **Security: Change default secret key**
+   ```yaml
+   # Edit data/config.yml and change the default secret key:
+   secret_key: "your-secure-random-key-here"  # Change from "change-me-in-production"
+   ```
+
+5. **Scan validation errors (422)**
+   ```bash
+   # The scanner now tolerates extra fields in scan requests
+   # Unknown module types are ignored instead of causing errors
+   # This should no longer occur with the latest version
+   ```
+
+6. **French UI not loading**
    ```bash
    # Clear browser cache and reload
    # Check browser console for JavaScript errors
    ```
 
-4. **Permission errors**
+7. **Permission errors**
    ```bash
    # Ensure write permissions
    chmod -R 755 data/
    ```
+
+### Setup Checklist
+
+- [ ] Python 3.8+ installed
+- [ ] HTTPx CLI tool available in PATH
+- [ ] Change default secret key in `data/config.yml`
+- [ ] **Optional**: Install Redis for real-time features
+- [ ] **For Grabber**: Add domain files (.txt/.list) to `data/lists/`
+- [ ] Check write permissions on `data/` directory
 
 ## Contributing
 

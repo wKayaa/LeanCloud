@@ -41,6 +41,16 @@ router.include_router(results_router, prefix="", tags=["results"])
 router.include_router(grabber_router, prefix="", tags=["grabber"])
 router.include_router(settings_router, prefix="", tags=["settings"])
 
+# Authentication endpoints
+@router.get("/auth/me")
+async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
+    """Get current authenticated user information"""
+    return {
+        "username": current_user.get("sub"),
+        "role": current_user.get("role", "admin")
+    }
+
+
 # Health and metrics endpoints
 @router.get("/healthz")
 async def health_check():

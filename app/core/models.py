@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 from datetime import datetime
 from enum import Enum
 import uuid
@@ -27,6 +27,8 @@ class ModuleType(str, Enum):
 
 
 class ScanRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
     targets: List[str] = Field(..., description="List of target URLs/domains")
     wordlist: str = Field(default="paths.txt", description="Wordlist filename")
     modules: List[ModuleType] = Field(default=[], description="Modules to scan with")
@@ -43,6 +45,26 @@ class ScanRequest(BaseModel):
         if v > 50000:
             raise ValueError('Concurrency cannot exceed 50,000 for safety')
         return v
+
+    @validator('modules', pre=True)
+    def coerce_modules(cls, v):
+        """Coerce module strings to ModuleType enum values, ignore unknown ones"""
+        if not isinstance(v, list):
+            return []
+        
+        coerced_modules = []
+        valid_module_names = {module.value for module in ModuleType}
+        
+        for module in v:
+            if isinstance(module, str):
+                # Convert to lowercase and check if it's a valid module
+                module_lower = module.lower()
+                if module_lower in valid_module_names:
+                    coerced_modules.append(ModuleType(module_lower))
+            elif isinstance(module, ModuleType):
+                coerced_modules.append(module)
+        
+        return coerced_modules
 
 
 class SecretPattern(BaseModel):
